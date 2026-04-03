@@ -1784,6 +1784,10 @@ JPH_CAPI JPH_Body* JPH_BodyInterface_CreateSoftBodyWithoutID(JPH_BodyInterface* 
 JPH_CAPI JPH_BodyID JPH_BodyInterface_CreateAndAddSoftBody(JPH_BodyInterface* bodyInterface, const JPH_SoftBodyCreationSettings* settings, JPH_Activation activationMode);
 
 JPH_CAPI void JPH_BodyInterface_AddBody(JPH_BodyInterface* bodyInterface, JPH_BodyID bodyID, JPH_Activation activationMode);
+JPH_CAPI void* JPH_BodyInterface_AddBodiesPrepare(JPH_BodyInterface* bodyInterface, JPH_BodyID* ioBodies, int inNumber);
+JPH_CAPI void JPH_BodyInterface_AddBodiesFinalize(JPH_BodyInterface* bodyInterface, JPH_BodyID* ioBodies, int inNumber, void* inAddState, JPH_Activation activationMode);
+JPH_CAPI void JPH_BodyInterface_AddBodiesAbort(JPH_BodyInterface* bodyInterface, JPH_BodyID* ioBodies, int inNumber, void* inAddState);
+JPH_CAPI void JPH_BodyInterface_RemoveBodies(JPH_BodyInterface* bodyInterface, JPH_BodyID* ioBodies, int inNumber);
 JPH_CAPI void JPH_BodyInterface_RemoveBody(JPH_BodyInterface* bodyInterface, JPH_BodyID bodyID);
 JPH_CAPI void JPH_BodyInterface_RemoveAndDestroyBody(JPH_BodyInterface* bodyInterface, JPH_BodyID bodyID);
 JPH_CAPI bool JPH_BodyInterface_IsAdded(JPH_BodyInterface* bodyInterface, JPH_BodyID bodyID);
@@ -2236,6 +2240,30 @@ typedef struct JPH_ContactListener_Procs {
 JPH_CAPI void JPH_ContactListener_SetProcs(const JPH_ContactListener_Procs* procs);
 JPH_CAPI JPH_ContactListener* JPH_ContactListener_Create(void* userData);
 JPH_CAPI void JPH_ContactListener_Destroy(JPH_ContactListener* listener);
+
+/* Contact listener extended (BodyID-based, avoids body pointer lookup) */
+typedef struct JPH_ContactListener_ProcsEx {
+	void(JPH_API_CALL* OnContactAdded)(void* userData,
+		JPH_BodyID bodyId1,
+		JPH_BodyID bodyId2,
+		const JPH_ContactManifold* manifold,
+		JPH_ContactSettings* settings);
+
+	void(JPH_API_CALL* OnContactPersisted)(void* userData,
+		JPH_BodyID bodyId1,
+		JPH_BodyID bodyId2,
+		const JPH_ContactManifold* manifold,
+		JPH_ContactSettings* settings);
+
+	void(JPH_API_CALL* OnContactRemoved)(void* userData,
+		JPH_BodyID bodyId1,
+		JPH_SubShapeID subShapeId1,
+		JPH_BodyID bodyId2,
+		JPH_SubShapeID subShapeId2);
+} JPH_ContactListener_ProcsEx;
+
+JPH_CAPI void JPH_ContactListener_SetProcsEx(const JPH_ContactListener_ProcsEx* procs);
+JPH_CAPI JPH_ContactListener* JPH_ContactListener_CreateEx(void* userData);
 
 /* BodyActivationListener */
 typedef struct JPH_BodyActivationListener_Procs {

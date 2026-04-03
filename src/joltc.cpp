@@ -5571,6 +5571,30 @@ void JPH_BodyInterface_AddBody(JPH_BodyInterface* bodyInterface, JPH_BodyID body
 	AsBodyInterface(bodyInterface)->AddBody(joltBodyID, (JPH::EActivation)activationMode);
 }
 
+void* JPH_BodyInterface_AddBodiesPrepare(JPH_BodyInterface* bodyInterface, JPH_BodyID* ioBodies, int inNumber)
+{
+	auto joltBodies = reinterpret_cast<JPH::BodyID*>(ioBodies);
+	return AsBodyInterface(bodyInterface)->AddBodiesPrepare(joltBodies, inNumber);
+}
+
+void JPH_BodyInterface_AddBodiesFinalize(JPH_BodyInterface* bodyInterface, JPH_BodyID* ioBodies, int inNumber, void* inAddState, JPH_Activation activationMode)
+{
+	auto joltBodies = reinterpret_cast<JPH::BodyID*>(ioBodies);
+	AsBodyInterface(bodyInterface)->AddBodiesFinalize(joltBodies, inNumber, inAddState, (JPH::EActivation)activationMode);
+}
+
+void JPH_BodyInterface_AddBodiesAbort(JPH_BodyInterface* bodyInterface, JPH_BodyID* ioBodies, int inNumber, void* inAddState)
+{
+	auto joltBodies = reinterpret_cast<JPH::BodyID*>(ioBodies);
+	AsBodyInterface(bodyInterface)->AddBodiesAbort(joltBodies, inNumber, inAddState);
+}
+
+void JPH_BodyInterface_RemoveBodies(JPH_BodyInterface* bodyInterface, JPH_BodyID* ioBodies, int inNumber)
+{
+	auto joltBodies = reinterpret_cast<JPH::BodyID*>(ioBodies);
+	AsBodyInterface(bodyInterface)->RemoveBodies(joltBodies, inNumber);
+}
+
 void JPH_BodyInterface_RemoveBody(JPH_BodyInterface* bodyInterface, JPH_BodyID bodyID)
 {
 	JPH::BodyID joltBodyID(bodyID);
@@ -7550,6 +7574,81 @@ void JPH_ContactListener_Destroy(JPH_ContactListener* listener)
 	{
 		delete reinterpret_cast<ManagedContactListener*>(listener);
 	}
+}
+
+/* Contact listener extended (BodyID-based) */
+class ManagedContactListenerEx final : public JPH::ContactListener
+{
+public:
+	static const JPH_ContactListener_ProcsEx* s_Procs;
+	void* userData = nullptr;
+
+	ManagedContactListenerEx(void* userData_)
+		: userData(userData_)
+	{
+	}
+
+	ValidateResult OnContactValidate(const Body& inBody1, const Body& inBody2, RVec3Arg inBaseOffset, const CollideShapeResult& inCollisionResult) override
+	{
+		JPH_UNUSED(inBaseOffset);
+		JPH_UNUSED(inCollisionResult);
+		return JPH::ValidateResult::AcceptAllContactsForThisBodyPair;
+	}
+
+	void OnContactAdded(const Body& inBody1, const Body& inBody2, const ContactManifold& inManifold, ContactSettings& ioSettings) override
+	{
+		if (s_Procs != nullptr && s_Procs->OnContactAdded)
+		{
+			s_Procs->OnContactAdded(
+				userData,
+				inBody1.GetID().GetIndexAndSequenceNumber(),
+				inBody2.GetID().GetIndexAndSequenceNumber(),
+				ToContactManifold(&inManifold),
+				reinterpret_cast<JPH_ContactSettings*>(&ioSettings)
+			);
+		}
+	}
+
+	void OnContactPersisted(const Body& inBody1, const Body& inBody2, const ContactManifold& inManifold, ContactSettings& ioSettings) override
+	{
+		if (s_Procs != nullptr && s_Procs->OnContactPersisted)
+		{
+			s_Procs->OnContactPersisted(
+				userData,
+				inBody1.GetID().GetIndexAndSequenceNumber(),
+				inBody2.GetID().GetIndexAndSequenceNumber(),
+				ToContactManifold(&inManifold),
+				reinterpret_cast<JPH_ContactSettings*>(&ioSettings)
+			);
+		}
+	}
+
+	void OnContactRemoved(const SubShapeIDPair& inSubShapePair) override
+	{
+		if (s_Procs != nullptr && s_Procs->OnContactRemoved)
+		{
+			s_Procs->OnContactRemoved(
+				userData,
+				inSubShapePair.GetBody1ID().GetIndexAndSequenceNumber(),
+				inSubShapePair.GetSubShapeID1().GetValue(),
+				inSubShapePair.GetBody2ID().GetIndexAndSequenceNumber(),
+				inSubShapePair.GetSubShapeID2().GetValue()
+			);
+		}
+	}
+};
+
+const JPH_ContactListener_ProcsEx* ManagedContactListenerEx::s_Procs = nullptr;
+
+void JPH_ContactListener_SetProcsEx(const JPH_ContactListener_ProcsEx* procs)
+{
+	ManagedContactListenerEx::s_Procs = procs;
+}
+
+JPH_ContactListener* JPH_ContactListener_CreateEx(void* userData)
+{
+	auto listener = new ManagedContactListenerEx(userData);
+	return reinterpret_cast<JPH_ContactListener*>(listener);
 }
 
 /* BodyActivationListener */
