@@ -2293,6 +2293,13 @@ JPH_CAPI uint32_t JPH_ContactManifold_GetPointCount(const JPH_ContactManifold* m
 JPH_CAPI void JPH_ContactManifold_GetWorldSpaceContactPointOn1(const JPH_ContactManifold* manifold, uint32_t index, JPH_RVec3* result);
 JPH_CAPI void JPH_ContactManifold_GetWorldSpaceContactPointOn2(const JPH_ContactManifold* manifold, uint32_t index, JPH_RVec3* result);
 
+// Estimates the pre-solve collision impulse magnitude along the contact
+// normal for the given body pair + manifold. Safe to call from a
+// ContactListener callback (bodies are locked for read during callbacks).
+// Returns 0 for separating contacts, resolved-body-not-found, or fully-static
+// pairs. See implementation for the formula.
+JPH_CAPI float JPH_PhysicsSystem_EstimateCollisionImpulse(const JPH_PhysicsSystem* system, JPH_BodyID bodyId1, JPH_BodyID bodyId2, const JPH_ContactManifold* manifold);
+
 /* CharacterBase */
 JPH_CAPI void JPH_CharacterBase_Destroy(JPH_CharacterBase* character);
 JPH_CAPI float JPH_CharacterBase_GetCosMaxSlopeAngle(JPH_CharacterBase* character);
