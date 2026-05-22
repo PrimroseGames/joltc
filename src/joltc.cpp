@@ -3,6 +3,8 @@
 
 #include "joltc.h"
 
+#include <vector>
+
 #include <Jolt/Core/Core.h>
 
 JPH_SUPPRESS_WARNING_PUSH
@@ -50,6 +52,8 @@ JPH_SUPPRESS_WARNINGS
 #include "Jolt/Physics/Body/BodyCreationSettings.h"
 #include "Jolt/Physics/Body/BodyActivationListener.h"
 #include "Jolt/Physics/SoftBody/SoftBodyCreationSettings.h"
+#include "Jolt/Physics/SoftBody/SoftBodySharedSettings.h"
+#include "Jolt/Physics/SoftBody/SoftBodyMotionProperties.h"
 #include "Jolt/Physics/Collision/RayCast.h"
 #include "Jolt/Physics/Collision/BroadPhase/BroadPhaseQuery.h"
 #include "Jolt/Physics/Collision/NarrowPhaseQuery.h"
@@ -113,6 +117,8 @@ using namespace JPH;
 DEF_MAP_DECL(ContactManifold, JPH_ContactManifold)
 DEF_MAP_DECL(BodyCreationSettings, JPH_BodyCreationSettings)
 DEF_MAP_DECL(SoftBodyCreationSettings, JPH_SoftBodyCreationSettings)
+DEF_MAP_DECL(SoftBodySharedSettings, JPH_SoftBodySharedSettings)
+DEF_MAP_DECL(SoftBodyMotionProperties, JPH_SoftBodyMotionProperties)
 DEF_MAP_DECL(Body, JPH_Body)
 DEF_MAP_DECL(BodyInterface, JPH_BodyInterface)
 DEF_MAP_DECL(BodyLockInterface, JPH_BodyLockInterface)
@@ -639,9 +645,7 @@ static JPH::IndexedTriangle ToIndexedTriangle(const JPH_IndexedTriangle& triangl
 	return JPH::IndexedTriangle(triangle.i1, triangle.i2, triangle.i3, triangle.materialIndex, triangle.userData);
 }
 
-// 10 MB was not enough for large simulation, let's use TempAllocatorMalloc
 static bool s_initialized = false;
-static TempAllocator* s_TempAllocator = nullptr;
 
 class JobSystemCallback final : public JPH::JobSystemWithBarrier
 {
@@ -754,8 +758,6 @@ bool JPH_Init()
 	// Register all Jolt physics types
 	JPH::RegisterTypes();
 
-	// Init temp allocator
-	s_TempAllocator = new TempAllocatorImplWithMallocFallback(8 * 1024 * 1024);
 	s_initialized = true;
 
 	return true;
@@ -765,8 +767,6 @@ void JPH_Shutdown(void)
 {
 	if (!s_initialized)
 		return;
-
-	delete s_TempAllocator; s_TempAllocator = nullptr;
 
 	// Unregisters all types with the factory and cleans up the default material
 	JPH::UnregisterTypes();
@@ -949,6 +949,7 @@ struct JPH_PhysicsSystem final
 	JPH::ObjectLayerPairFilter* objectLayerPairFilter = nullptr;
 	JPH::ObjectVsBroadPhaseLayerFilter* objectVsBroadPhaseLayerFilter = nullptr;
 	JPH::PhysicsSystem* physicsSystem = nullptr;
+	JPH::TempAllocator* tempAllocator = nullptr;
 };
 static JPH::UnorderedMap<JPH::PhysicsSystem*, JPH_PhysicsSystem*> s_PhysicsSystems;
 
@@ -973,6 +974,8 @@ JPH_PhysicsSystem* JPH_PhysicsSystem_Create(const JPH_PhysicsSystemSettings* set
 		*system->objectVsBroadPhaseLayerFilter,
 		*system->objectLayerPairFilter);
 
+	system->tempAllocator = new TempAllocatorImplWithMallocFallback(8 * 1024 * 1024);
+
 	s_PhysicsSystems[system->physicsSystem] = system;
 	return system;
 }
@@ -986,6 +989,7 @@ void JPH_PhysicsSystem_Destroy(JPH_PhysicsSystem* system)
 		delete system->broadPhaseLayerInterface;
 		delete system->objectVsBroadPhaseLayerFilter;
 		delete system->objectLayerPairFilter;
+		delete system->tempAllocator;
 
 		delete system;
 	}
@@ -1064,7 +1068,7 @@ void JPH_PhysicsSystem_OptimizeBroadPhase(JPH_PhysicsSystem* system)
 JPH_PhysicsUpdateError JPH_PhysicsSystem_Update(JPH_PhysicsSystem* system, float deltaTime, int collisionSteps, JPH_JobSystem* jobSystem)
 {
 	JPH::JobSystem* joltJobSystem = reinterpret_cast<JPH::JobSystem*>(jobSystem);
-	return static_cast<JPH_PhysicsUpdateError>(system->physicsSystem->Update(deltaTime, collisionSteps, s_TempAllocator, joltJobSystem));
+	return static_cast<JPH_PhysicsUpdateError>(system->physicsSystem->Update(deltaTime, collisionSteps, system->tempAllocator, joltJobSystem));
 }
 
 JPH_BodyInterface* JPH_PhysicsSystem_GetBodyInterface(JPH_PhysicsSystem* system)
@@ -3706,6 +3710,324 @@ void JPH_SoftBodyCreationSettings_Destroy(JPH_SoftBodyCreationSettings* settings
 	{
 		delete AsSoftBodyCreationSettings(settings);
 	}
+}
+
+/* SoftBodyCreationSettings setters. mSettings is a RefConst<>, so assigning to it does
+ * the AddRef bookkeeping; the destructor releases it. */
+void JPH_SoftBodyCreationSettings_SetSettings(JPH_SoftBodyCreationSettings* settings, const JPH_SoftBodySharedSettings* shared)
+{
+	AsSoftBodyCreationSettings(settings)->mSettings = shared ? AsSoftBodySharedSettings(shared) : nullptr;
+}
+void JPH_SoftBodyCreationSettings_SetPosition(JPH_SoftBodyCreationSettings* settings, const JPH_RVec3* position)
+{
+	AsSoftBodyCreationSettings(settings)->mPosition = ToJolt(position);
+}
+void JPH_SoftBodyCreationSettings_SetRotation(JPH_SoftBodyCreationSettings* settings, const JPH_Quat* rotation)
+{
+	AsSoftBodyCreationSettings(settings)->mRotation = ToJolt(rotation);
+}
+void JPH_SoftBodyCreationSettings_SetObjectLayer(JPH_SoftBodyCreationSettings* settings, JPH_ObjectLayer layer)
+{
+	AsSoftBodyCreationSettings(settings)->mObjectLayer = layer;
+}
+void JPH_SoftBodyCreationSettings_SetNumIterations(JPH_SoftBodyCreationSettings* settings, uint32_t numIterations)
+{
+	AsSoftBodyCreationSettings(settings)->mNumIterations = numIterations;
+}
+void JPH_SoftBodyCreationSettings_SetLinearDamping(JPH_SoftBodyCreationSettings* settings, float damping)
+{
+	AsSoftBodyCreationSettings(settings)->mLinearDamping = damping;
+}
+void JPH_SoftBodyCreationSettings_SetMaxLinearVelocity(JPH_SoftBodyCreationSettings* settings, float maxVelocity)
+{
+	AsSoftBodyCreationSettings(settings)->mMaxLinearVelocity = maxVelocity;
+}
+void JPH_SoftBodyCreationSettings_SetPressure(JPH_SoftBodyCreationSettings* settings, float pressure)
+{
+	AsSoftBodyCreationSettings(settings)->mPressure = pressure;
+}
+void JPH_SoftBodyCreationSettings_SetGravityFactor(JPH_SoftBodyCreationSettings* settings, float factor)
+{
+	AsSoftBodyCreationSettings(settings)->mGravityFactor = factor;
+}
+void JPH_SoftBodyCreationSettings_SetVertexRadius(JPH_SoftBodyCreationSettings* settings, float radius)
+{
+	AsSoftBodyCreationSettings(settings)->mVertexRadius = radius;
+}
+void JPH_SoftBodyCreationSettings_SetUpdatePosition(JPH_SoftBodyCreationSettings* settings, bool updatePosition)
+{
+	AsSoftBodyCreationSettings(settings)->mUpdatePosition = updatePosition;
+}
+void JPH_SoftBodyCreationSettings_SetMakeRotationIdentity(JPH_SoftBodyCreationSettings* settings, bool identity)
+{
+	AsSoftBodyCreationSettings(settings)->mMakeRotationIdentity = identity;
+}
+void JPH_SoftBodyCreationSettings_SetAllowSleeping(JPH_SoftBodyCreationSettings* settings, bool allow)
+{
+	AsSoftBodyCreationSettings(settings)->mAllowSleeping = allow;
+}
+void JPH_SoftBodyCreationSettings_SetFacesDoubleSided(JPH_SoftBodyCreationSettings* settings, bool doubleSided)
+{
+	AsSoftBodyCreationSettings(settings)->mFacesDoubleSided = doubleSided;
+}
+
+/* JPH_SoftBodySharedSettings — RefTarget; Create AddRefs so the C# wrapper owns one ref,
+ * Destroy Releases that ref. */
+JPH_SoftBodySharedSettings* JPH_SoftBodySharedSettings_Create(void)
+{
+	auto settings = new JPH::SoftBodySharedSettings();
+	settings->AddRef();
+	return ToSoftBodySharedSettings(settings);
+}
+
+void JPH_SoftBodySharedSettings_Destroy(JPH_SoftBodySharedSettings* settings)
+{
+	if (settings)
+	{
+		const_cast<JPH::SoftBodySharedSettings*>(AsSoftBodySharedSettings(settings))->Release();
+	}
+}
+
+uint32_t JPH_SoftBodySharedSettings_GetVertexCount(const JPH_SoftBodySharedSettings* settings)
+{
+	return static_cast<uint32_t>(AsSoftBodySharedSettings(settings)->mVertices.size());
+}
+
+uint32_t JPH_SoftBodySharedSettings_GetEdgeCount(const JPH_SoftBodySharedSettings* settings)
+{
+	return static_cast<uint32_t>(AsSoftBodySharedSettings(settings)->mEdgeConstraints.size());
+}
+
+uint32_t JPH_SoftBodySharedSettings_GetFaceCount(const JPH_SoftBodySharedSettings* settings)
+{
+	return static_cast<uint32_t>(AsSoftBodySharedSettings(settings)->mFaces.size());
+}
+
+void JPH_SoftBodySharedSettings_AddVertex(JPH_SoftBodySharedSettings* settings, const JPH_Vec3* position, float invMass)
+{
+	auto s = const_cast<JPH::SoftBodySharedSettings*>(AsSoftBodySharedSettings(settings));
+	JPH::SoftBodySharedSettings::Vertex v;
+	v.mPosition = JPH::Float3(position->x, position->y, position->z);
+	v.mVelocity = JPH::Float3(0, 0, 0);
+	v.mInvMass = invMass;
+	s->mVertices.push_back(v);
+}
+
+void JPH_SoftBodySharedSettings_AddFace(JPH_SoftBodySharedSettings* settings, uint32_t v0, uint32_t v1, uint32_t v2, uint32_t materialIndex)
+{
+	auto s = const_cast<JPH::SoftBodySharedSettings*>(AsSoftBodySharedSettings(settings));
+	s->AddFace(JPH::SoftBodySharedSettings::Face(v0, v1, v2, materialIndex));
+}
+
+void JPH_SoftBodySharedSettings_AddEdgeConstraint(JPH_SoftBodySharedSettings* settings, uint32_t v0, uint32_t v1, float restLength, float compliance)
+{
+	auto s = const_cast<JPH::SoftBodySharedSettings*>(AsSoftBodySharedSettings(settings));
+	JPH::SoftBodySharedSettings::Edge e(v0, v1, compliance);
+	e.mRestLength = restLength;
+	s->mEdgeConstraints.push_back(e);
+}
+
+void JPH_SoftBodySharedSettings_AddDihedralBendConstraint(JPH_SoftBodySharedSettings* settings, uint32_t v0, uint32_t v1, uint32_t v2, uint32_t v3, float compliance, float initialAngle)
+{
+	auto s = const_cast<JPH::SoftBodySharedSettings*>(AsSoftBodySharedSettings(settings));
+	JPH::SoftBodySharedSettings::DihedralBend b(v0, v1, v2, v3, compliance);
+	b.mInitialAngle = initialAngle;
+	s->mDihedralBendConstraints.push_back(b);
+}
+
+void JPH_SoftBodySharedSettings_AddVolumeConstraint(JPH_SoftBodySharedSettings* settings, uint32_t v0, uint32_t v1, uint32_t v2, uint32_t v3, float sixRestVolume, float compliance)
+{
+	auto s = const_cast<JPH::SoftBodySharedSettings*>(AsSoftBodySharedSettings(settings));
+	JPH::SoftBodySharedSettings::Volume vol(v0, v1, v2, v3, compliance);
+	vol.mSixRestVolume = sixRestVolume;
+	s->mVolumeConstraints.push_back(vol);
+}
+
+void JPH_SoftBodySharedSettings_AddLRAConstraint(JPH_SoftBodySharedSettings* settings, uint32_t kinematicVertex, uint32_t dynamicVertex, float maxDistance)
+{
+	auto s = const_cast<JPH::SoftBodySharedSettings*>(AsSoftBodySharedSettings(settings));
+	s->mLRAConstraints.push_back(JPH::SoftBodySharedSettings::LRA(kinematicVertex, dynamicVertex, maxDistance));
+}
+
+void JPH_SoftBodySharedSettings_CalculateEdgeLengths(JPH_SoftBodySharedSettings* settings)
+{
+	const_cast<JPH::SoftBodySharedSettings*>(AsSoftBodySharedSettings(settings))->CalculateEdgeLengths();
+}
+
+void JPH_SoftBodySharedSettings_CalculateBendConstraintConstants(JPH_SoftBodySharedSettings* settings)
+{
+	const_cast<JPH::SoftBodySharedSettings*>(AsSoftBodySharedSettings(settings))->CalculateBendConstraintConstants();
+}
+
+void JPH_SoftBodySharedSettings_CalculateVolumeConstraintVolumes(JPH_SoftBodySharedSettings* settings)
+{
+	const_cast<JPH::SoftBodySharedSettings*>(AsSoftBodySharedSettings(settings))->CalculateVolumeConstraintVolumes();
+}
+
+void JPH_SoftBodySharedSettings_CalculateLRALengths(JPH_SoftBodySharedSettings* settings, float maxDistanceMultiplier)
+{
+	const_cast<JPH::SoftBodySharedSettings*>(AsSoftBodySharedSettings(settings))->CalculateLRALengths(maxDistanceMultiplier);
+}
+
+void JPH_SoftBodySharedSettings_Optimize(JPH_SoftBodySharedSettings* settings)
+{
+	const_cast<JPH::SoftBodySharedSettings*>(AsSoftBodySharedSettings(settings))->Optimize();
+}
+
+void JPH_SoftBodySharedSettings_CreateConstraints(
+	JPH_SoftBodySharedSettings* settings,
+	const JPH_SoftBodyVertexAttributes* attributes,
+	uint32_t attributesLength,
+	JPH_SoftBodyBendType bendType,
+	float angleToleranceRad)
+{
+	auto s = const_cast<JPH::SoftBodySharedSettings*>(AsSoftBodySharedSettings(settings));
+	JPH::Array<JPH::SoftBodySharedSettings::VertexAttributes> attrs;
+	attrs.resize(attributesLength);
+	for (uint32_t i = 0; i < attributesLength; ++i)
+	{
+		const auto& src = attributes[i];
+		auto& dst = attrs[i];
+		dst.mCompliance = src.compliance;
+		dst.mShearCompliance = src.shearCompliance;
+		dst.mBendCompliance = src.bendCompliance;
+		dst.mLRAType = (JPH::SoftBodySharedSettings::ELRAType)src.lraType;
+		dst.mLRAMaxDistanceMultiplier = src.lraMaxDistanceMultiplier;
+	}
+	s->CreateConstraints(attrs.data(), attributesLength, (JPH::SoftBodySharedSettings::EBendType)bendType, angleToleranceRad);
+}
+
+/* SoftBodyMotionProperties accessors. The motion-properties pointer attached to a soft
+ * body is a SoftBodyMotionProperties (subclass of MotionProperties); the cast is safe
+ * when Body::IsSoftBody() is true. */
+JPH_SoftBodyMotionProperties* JPH_MotionProperties_AsSoftBody(JPH_MotionProperties* motion)
+{
+	if (motion == nullptr) return nullptr;
+	auto base = reinterpret_cast<JPH::MotionProperties*>(motion);
+	return ToSoftBodyMotionProperties(static_cast<JPH::SoftBodyMotionProperties*>(base));
+}
+
+JPH_SoftBodyMotionProperties* JPH_Body_GetSoftBodyMotionProperties(JPH_Body* body)
+{
+	if (body == nullptr) return nullptr;
+	auto joltBody = reinterpret_cast<JPH::Body*>(body);
+	if (!joltBody->IsSoftBody()) return nullptr;
+	return ToSoftBodyMotionProperties(static_cast<JPH::SoftBodyMotionProperties*>(joltBody->GetMotionPropertiesUnchecked()));
+}
+
+uint32_t JPH_SoftBodyMotionProperties_GetVertexCount(const JPH_SoftBodyMotionProperties* motion)
+{
+	return static_cast<uint32_t>(AsSoftBodyMotionProperties(motion)->GetVertices().size());
+}
+
+void JPH_SoftBodyMotionProperties_GetVertexPositions(const JPH_SoftBodyMotionProperties* motion, float* outPositions, uint32_t vertexCount)
+{
+	const auto& verts = AsSoftBodyMotionProperties(motion)->GetVertices();
+	uint32_t n = vertexCount < verts.size() ? vertexCount : static_cast<uint32_t>(verts.size());
+	for (uint32_t i = 0; i < n; ++i)
+	{
+		const JPH::Vec3& p = verts[i].mPosition;
+		outPositions[i * 3 + 0] = p.GetX();
+		outPositions[i * 3 + 1] = p.GetY();
+		outPositions[i * 3 + 2] = p.GetZ();
+	}
+}
+
+void JPH_SoftBodyMotionProperties_SetVertexInvMass(JPH_SoftBodyMotionProperties* motion, uint32_t vertexIndex, float invMass)
+{
+	auto m = const_cast<JPH::SoftBodyMotionProperties*>(AsSoftBodyMotionProperties(motion));
+	auto& verts = m->GetVertices();
+	if (vertexIndex < verts.size())
+		verts[vertexIndex].mInvMass = invMass;
+}
+
+uint32_t JPH_SoftBodyMotionProperties_GetNumIterations(const JPH_SoftBodyMotionProperties* motion)
+{
+	return AsSoftBodyMotionProperties(motion)->GetNumIterations();
+}
+
+void JPH_SoftBodyMotionProperties_SetNumIterations(JPH_SoftBodyMotionProperties* motion, uint32_t numIterations)
+{
+	const_cast<JPH::SoftBodyMotionProperties*>(AsSoftBodyMotionProperties(motion))->SetNumIterations(numIterations);
+}
+
+float JPH_SoftBodyMotionProperties_GetPressure(const JPH_SoftBodyMotionProperties* motion)
+{
+	return AsSoftBodyMotionProperties(motion)->GetPressure();
+}
+
+void JPH_SoftBodyMotionProperties_SetPressure(JPH_SoftBodyMotionProperties* motion, float pressure)
+{
+	const_cast<JPH::SoftBodyMotionProperties*>(AsSoftBodyMotionProperties(motion))->SetPressure(pressure);
+}
+
+void JPH_SoftBodyMotionProperties_SetEnableSkinConstraints(JPH_SoftBodyMotionProperties* motion, bool enable)
+{
+	const_cast<JPH::SoftBodyMotionProperties*>(AsSoftBodyMotionProperties(motion))->SetEnableSkinConstraints(enable);
+}
+
+void JPH_SoftBodyMotionProperties_SetSkinnedMaxDistanceMultiplier(JPH_SoftBodyMotionProperties* motion, float multiplier)
+{
+	const_cast<JPH::SoftBodyMotionProperties*>(AsSoftBodyMotionProperties(motion))->SetSkinnedMaxDistanceMultiplier(multiplier);
+}
+
+void JPH_SoftBodySharedSettings_AddSkinnedConstraint(
+	JPH_SoftBodySharedSettings* settings,
+	uint32_t vertex,
+	const uint32_t* invBindIndices,
+	const float* weights,
+	float maxDistance,
+	float backStopDistance,
+	float backStopRadius)
+{
+	auto s = const_cast<JPH::SoftBodySharedSettings*>(AsSoftBodySharedSettings(settings));
+	JPH::SoftBodySharedSettings::Skinned sk(vertex, maxDistance, backStopDistance, backStopRadius);
+	for (uint32_t i = 0; i < JPH::SoftBodySharedSettings::Skinned::cMaxSkinWeights; ++i)
+	{
+		// 0xFFFFFFFF marks unused slots; weight 0 ends the influence list per Jolt's
+		// convention (mWeights[i] == 0 means slots i..N are unused).
+		uint32_t invBindIdx = invBindIndices[i];
+		float w = weights[i];
+		if (invBindIdx == 0xFFFFFFFFu)
+			w = 0.0f;
+		sk.mWeights[i] = JPH::SoftBodySharedSettings::SkinWeight(invBindIdx == 0xFFFFFFFFu ? 0u : invBindIdx, w);
+	}
+	s->mSkinnedConstraints.push_back(sk);
+}
+
+void JPH_SoftBodySharedSettings_AddInvBindMatrix(
+	JPH_SoftBodySharedSettings* settings,
+	uint32_t jointIndex,
+	const JPH_Mat4* invBind)
+{
+	auto s = const_cast<JPH::SoftBodySharedSettings*>(AsSoftBodySharedSettings(settings));
+	if (s->mInvBindMatrices.size() <= jointIndex)
+		s->mInvBindMatrices.resize(jointIndex + 1);
+	s->mInvBindMatrices[jointIndex] = JPH::SoftBodySharedSettings::InvBind(jointIndex, ToJolt(invBind));
+}
+
+void JPH_SoftBodySharedSettings_CalculateSkinnedConstraintNormals(JPH_SoftBodySharedSettings* settings)
+{
+	const_cast<JPH::SoftBodySharedSettings*>(AsSoftBodySharedSettings(settings))->CalculateSkinnedConstraintNormals();
+}
+
+void JPH_SoftBodyMotionProperties_SkinVertices(
+	JPH_SoftBodyMotionProperties* motion,
+	JPH_PhysicsSystem* system,
+	const JPH_RMat4* comTransform,
+	const JPH_Mat4* jointTransforms,
+	uint32_t jointCount,
+	bool hardSkinAll)
+{
+	auto m = const_cast<JPH::SoftBodyMotionProperties*>(AsSoftBodyMotionProperties(motion));
+	// Convert C joint matrices to Jolt's SIMD-aligned Mat44. ToJolt(const JPH_Mat4*) memcpys,
+	// and the array layout in Jolt's API requires SIMD alignment which the C struct doesn't
+	// guarantee — so we copy.
+	JPH::Array<JPH::Mat44> joints;
+	joints.resize(jointCount);
+	for (uint32_t i = 0; i < jointCount; ++i)
+		joints[i] = ToJolt(&jointTransforms[i]);
+	m->SkinVertices(ToJolt(comTransform), joints.data(), jointCount, hardSkinAll, *system->tempAllocator);
 }
 
 /* JPH_ConstraintSettings */
@@ -8391,7 +8713,7 @@ void JPH_CharacterVirtual_Update(JPH_CharacterVirtual* character,
 		system->physicsSystem->GetDefaultLayerFilter(joltLayer),
 		ToJolt(bodyFilter),
 		ToJolt(shapeFilter),
-		*s_TempAllocator
+		*system->tempAllocator
 	);
 }
 
@@ -8419,7 +8741,7 @@ void JPH_CharacterVirtual_ExtendedUpdate(JPH_CharacterVirtual* character, float 
 		system->physicsSystem->GetDefaultLayerFilter(joltLayer),
 		ToJolt(bodyFilter),
 		ToJolt(shapeFilter),
-		*s_TempAllocator
+		*system->tempAllocator
 	);
 }
 
@@ -8435,7 +8757,7 @@ void JPH_CharacterVirtual_RefreshContacts(JPH_CharacterVirtual* character,
 		system->physicsSystem->GetDefaultLayerFilter(joltLayer),
 		ToJolt(bodyFilter),
 		ToJolt(shapeFilter),
-		*s_TempAllocator
+		*system->tempAllocator
 	);
 }
 
@@ -8466,7 +8788,7 @@ bool JPH_CharacterVirtual_WalkStairs(JPH_CharacterVirtual* character, float delt
 		system->physicsSystem->GetDefaultLayerFilter(joltLayer),
 		ToJolt(bodyFilter),
 		ToJolt(shapeFilter),
-		*s_TempAllocator
+		*system->tempAllocator
 	);
 }
 
@@ -8482,7 +8804,7 @@ bool JPH_CharacterVirtual_StickToFloor(JPH_CharacterVirtual* character, const JP
 		system->physicsSystem->GetDefaultLayerFilter(joltLayer),
 		ToJolt(bodyFilter),
 		ToJolt(shapeFilter),
-		*s_TempAllocator
+		*system->tempAllocator
 	);
 }
 
@@ -8507,7 +8829,7 @@ bool JPH_CharacterVirtual_SetShape(JPH_CharacterVirtual* character,
 		system->physicsSystem->GetDefaultLayerFilter(joltLayer),
 		ToJolt(bodyFilter),
 		ToJolt(shapeFilter),
-		*s_TempAllocator
+		*system->tempAllocator
 	);
 }
 
@@ -9060,6 +9382,64 @@ void JPH_BodyDrawFilter_Destroy(JPH_BodyDrawFilter* filter)
 	}
 }
 
+// Built-in filter that does distance culling + user-data bit-mask skip
+// without ever calling back into managed code. Removes the per-body
+// native→managed callback that JoltDebugOverlay was paying for every draw.
+class JoltDistanceBodyDrawFilter final : public JPH::BodyDrawFilter
+{
+public:
+	JPH::DVec3 cameraPos = JPH::DVec3::sZero();
+	double maxDistSq = 0.0;
+	uint64_t userDataSkipMask = 0;
+	bool distanceCullEnabled = false;
+
+	bool ShouldDraw(const Body& inBody) const override
+	{
+		if (userDataSkipMask != 0 && (inBody.GetUserData() & userDataSkipMask) != 0)
+			return false;
+
+		if (distanceCullEnabled)
+		{
+			const AABox& bounds = inBody.GetWorldSpaceBounds();
+			double dx = std::max(0.0, std::max(double(bounds.mMin.GetX()) - cameraPos.GetX(),
+			                                   cameraPos.GetX() - double(bounds.mMax.GetX())));
+			double dy = std::max(0.0, std::max(double(bounds.mMin.GetY()) - cameraPos.GetY(),
+			                                   cameraPos.GetY() - double(bounds.mMax.GetY())));
+			double dz = std::max(0.0, std::max(double(bounds.mMin.GetZ()) - cameraPos.GetZ(),
+			                                   cameraPos.GetZ() - double(bounds.mMax.GetZ())));
+			if (dx*dx + dy*dy + dz*dz > maxDistSq) return false;
+		}
+
+		return true;
+	}
+};
+
+JPH_BodyDrawFilter* JPH_DistanceBodyDrawFilter_Create()
+{
+	auto filter = new JoltDistanceBodyDrawFilter();
+	return reinterpret_cast<JPH_BodyDrawFilter*>(filter);
+}
+
+void JPH_DistanceBodyDrawFilter_Destroy(JPH_BodyDrawFilter* filter)
+{
+	if (filter)
+		delete reinterpret_cast<JoltDistanceBodyDrawFilter*>(filter);
+}
+
+void JPH_DistanceBodyDrawFilter_SetDistanceCull(JPH_BodyDrawFilter* filter, bool enabled, const JPH_RVec3* cameraPos, double maxDistSq)
+{
+	auto* f = reinterpret_cast<JoltDistanceBodyDrawFilter*>(filter);
+	f->distanceCullEnabled = enabled;
+	if (cameraPos)
+		f->cameraPos = JPH::DVec3(cameraPos->x, cameraPos->y, cameraPos->z);
+	f->maxDistSq = maxDistSq;
+}
+
+void JPH_DistanceBodyDrawFilter_SetUserDataSkipMask(JPH_BodyDrawFilter* filter, uint64_t mask)
+{
+	reinterpret_cast<JoltDistanceBodyDrawFilter*>(filter)->userDataSkipMask = mask;
+}
+
 /* DebugRenderer */
 class ManagedDebugRendererSimple final : public DebugRendererSimple
 {
@@ -9067,45 +9447,56 @@ public:
 	static const JPH_DebugRenderer_Procs* s_Procs;
 	void* userData = nullptr;
 
+	// Per-frame primitive buffers. DrawBodies / DrawConstraints / etc emit
+	// thousands of lines and triangles via per-call virtual overrides; the
+	// previous design fired one P/Invoke callback per primitive. Now we
+	// emplace_back into these vectors and managed code drains them in one
+	// pass via JPH_DebugRenderer_GetLineBuffer / GetTriangleBuffer.
+	std::vector<JPH_DebugRenderer_LineEntry>     lineBuffer;
+	std::vector<JPH_DebugRenderer_TriangleEntry> triangleBuffer;
+
 	ManagedDebugRendererSimple(void* userData_)
 		: userData(userData_)
 	{
+		// Modest reservation so the first frame doesn't pay several grows.
+		// Steady-state capacity tracks the high-water mark of the previous
+		// frames thanks to vector's grow-on-demand behaviour.
+		lineBuffer.reserve(4096);
+		triangleBuffer.reserve(1024);
+	}
 
+	// Shadows DebugRenderer::NextFrame (which is non-virtual in upstream Jolt).
+	// The C wrapper JPH_DebugRenderer_NextFrame calls this on the concrete
+	// ManagedDebugRendererSimple* so static dispatch picks our override.
+	void NextFrame()
+	{
+		DebugRendererSimple::NextFrame();
+		lineBuffer.clear();
+		triangleBuffer.clear();
 	}
 
 	void DrawLine(RVec3Arg inFrom, RVec3Arg inTo, ColorArg inColor) override
 	{
-		if (s_Procs != nullptr && s_Procs->DrawLine)
-		{
-			JPH_RVec3 from, to;
-
-			FromJolt(inFrom, &from);
-			FromJolt(inTo, &to);
-
-			s_Procs->DrawLine(userData, &from, &to, inColor.GetUInt32());
-		}
+		JPH_DebugRenderer_LineEntry& e = lineBuffer.emplace_back();
+		FromJolt(inFrom, &e.from);
+		FromJolt(inTo, &e.to);
+		e.color = inColor.GetUInt32();
+		e._pad = 0;
 	}
 
 	void DrawTriangle(RVec3Arg inV1, RVec3Arg inV2, RVec3Arg inV3, ColorArg inColor, ECastShadow inCastShadow = ECastShadow::Off) override
 	{
-		if (s_Procs != nullptr && s_Procs->DrawTriangle)
-		{
-			JPH_RVec3 v1, v2, v3;
-
-			FromJolt(inV1, &v1);
-			FromJolt(inV2, &v2);
-			FromJolt(inV3, &v3);
-
-			s_Procs->DrawTriangle(userData, &v1, &v2, &v3, inColor.GetUInt32(), static_cast<JPH_DebugRenderer_CastShadow>(inCastShadow));
-		}
-		else
-		{
-			DebugRendererSimple::DrawTriangle(inV1, inV2, inV3, inColor, inCastShadow);
-		}
+		JPH_DebugRenderer_TriangleEntry& e = triangleBuffer.emplace_back();
+		FromJolt(inV1, &e.v1);
+		FromJolt(inV2, &e.v2);
+		FromJolt(inV3, &e.v3);
+		e.color = inColor.GetUInt32();
+		e.castShadow = static_cast<uint32_t>(inCastShadow);
 	}
 
 	void DrawText3D(RVec3Arg inPosition, const string_view& inString, ColorArg inColor, float inHeight) override
 	{
+		// Text is rare and string-shaped, keep on the callback path.
 		if (s_Procs != nullptr && s_Procs->DrawText3D)
 		{
 			JPH_RVec3 position;
@@ -9144,6 +9535,20 @@ void JPH_DebugRenderer_NextFrame(JPH_DebugRenderer* renderer)
 void JPH_DebugRenderer_SetCameraPos(JPH_DebugRenderer* renderer, const JPH_RVec3* position)
 {
 	reinterpret_cast<ManagedDebugRendererSimple*>(renderer)->SetCameraPos(ToJolt(position));
+}
+
+size_t JPH_DebugRenderer_GetLineBuffer(JPH_DebugRenderer* renderer, const JPH_DebugRenderer_LineEntry** outPtr)
+{
+	auto* impl = reinterpret_cast<ManagedDebugRendererSimple*>(renderer);
+	*outPtr = impl->lineBuffer.data();
+	return impl->lineBuffer.size();
+}
+
+size_t JPH_DebugRenderer_GetTriangleBuffer(JPH_DebugRenderer* renderer, const JPH_DebugRenderer_TriangleEntry** outPtr)
+{
+	auto* impl = reinterpret_cast<ManagedDebugRendererSimple*>(renderer);
+	*outPtr = impl->triangleBuffer.data();
+	return impl->triangleBuffer.size();
 }
 
 void JPH_DebugRenderer_DrawLine(JPH_DebugRenderer* renderer, const JPH_RVec3* from, const JPH_RVec3* to, JPH_Color color)

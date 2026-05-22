@@ -125,6 +125,8 @@ typedef struct JPH_EmptyShape							JPH_EmptyShape;
 
 typedef struct JPH_BodyCreationSettings					JPH_BodyCreationSettings;
 typedef struct JPH_SoftBodyCreationSettings				JPH_SoftBodyCreationSettings;
+typedef struct JPH_SoftBodySharedSettings				JPH_SoftBodySharedSettings;
+typedef struct JPH_SoftBodyMotionProperties				JPH_SoftBodyMotionProperties;
 typedef struct JPH_BodyInterface						JPH_BodyInterface;
 typedef struct JPH_BodyLockInterface					JPH_BodyLockInterface;
 typedef struct JPH_BroadPhaseQuery						JPH_BroadPhaseQuery;
@@ -1584,6 +1586,133 @@ JPH_CAPI void JPH_BodyCreationSettings_SetMassPropertiesOverride(JPH_BodyCreatio
 JPH_CAPI JPH_SoftBodyCreationSettings* JPH_SoftBodyCreationSettings_Create(void);
 JPH_CAPI void JPH_SoftBodyCreationSettings_Destroy(JPH_SoftBodyCreationSettings* settings);
 
+/* SoftBodyCreationSettings field setters */
+JPH_CAPI void JPH_SoftBodyCreationSettings_SetSettings(JPH_SoftBodyCreationSettings* settings, const JPH_SoftBodySharedSettings* shared);
+JPH_CAPI void JPH_SoftBodyCreationSettings_SetPosition(JPH_SoftBodyCreationSettings* settings, const JPH_RVec3* position);
+JPH_CAPI void JPH_SoftBodyCreationSettings_SetRotation(JPH_SoftBodyCreationSettings* settings, const JPH_Quat* rotation);
+JPH_CAPI void JPH_SoftBodyCreationSettings_SetObjectLayer(JPH_SoftBodyCreationSettings* settings, JPH_ObjectLayer layer);
+JPH_CAPI void JPH_SoftBodyCreationSettings_SetNumIterations(JPH_SoftBodyCreationSettings* settings, uint32_t numIterations);
+JPH_CAPI void JPH_SoftBodyCreationSettings_SetLinearDamping(JPH_SoftBodyCreationSettings* settings, float damping);
+JPH_CAPI void JPH_SoftBodyCreationSettings_SetMaxLinearVelocity(JPH_SoftBodyCreationSettings* settings, float maxVelocity);
+JPH_CAPI void JPH_SoftBodyCreationSettings_SetPressure(JPH_SoftBodyCreationSettings* settings, float pressure);
+JPH_CAPI void JPH_SoftBodyCreationSettings_SetGravityFactor(JPH_SoftBodyCreationSettings* settings, float factor);
+JPH_CAPI void JPH_SoftBodyCreationSettings_SetVertexRadius(JPH_SoftBodyCreationSettings* settings, float radius);
+JPH_CAPI void JPH_SoftBodyCreationSettings_SetUpdatePosition(JPH_SoftBodyCreationSettings* settings, bool updatePosition);
+JPH_CAPI void JPH_SoftBodyCreationSettings_SetMakeRotationIdentity(JPH_SoftBodyCreationSettings* settings, bool identity);
+JPH_CAPI void JPH_SoftBodyCreationSettings_SetAllowSleeping(JPH_SoftBodyCreationSettings* settings, bool allow);
+JPH_CAPI void JPH_SoftBodyCreationSettings_SetFacesDoubleSided(JPH_SoftBodyCreationSettings* settings, bool doubleSided);
+
+/* JPH_SoftBodySharedSettings — RefTarget; Create AddRefs, Destroy Releases */
+JPH_CAPI JPH_SoftBodySharedSettings* JPH_SoftBodySharedSettings_Create(void);
+JPH_CAPI void JPH_SoftBodySharedSettings_Destroy(JPH_SoftBodySharedSettings* settings);
+
+/* Vertex / face / constraint builders. All indices are into mVertices and must be added
+ * in vertex-id order. Edge/Bend/Volume/LRA constraints can leave geometric scalars at 0
+ * and call the matching Calculate*() routine after all vertices are populated. */
+JPH_CAPI uint32_t JPH_SoftBodySharedSettings_GetVertexCount(const JPH_SoftBodySharedSettings* settings);
+JPH_CAPI uint32_t JPH_SoftBodySharedSettings_GetEdgeCount(const JPH_SoftBodySharedSettings* settings);
+JPH_CAPI uint32_t JPH_SoftBodySharedSettings_GetFaceCount(const JPH_SoftBodySharedSettings* settings);
+JPH_CAPI void JPH_SoftBodySharedSettings_AddVertex(JPH_SoftBodySharedSettings* settings, const JPH_Vec3* position, float invMass);
+JPH_CAPI void JPH_SoftBodySharedSettings_AddFace(JPH_SoftBodySharedSettings* settings, uint32_t v0, uint32_t v1, uint32_t v2, uint32_t materialIndex);
+JPH_CAPI void JPH_SoftBodySharedSettings_AddEdgeConstraint(JPH_SoftBodySharedSettings* settings, uint32_t v0, uint32_t v1, float restLength, float compliance);
+JPH_CAPI void JPH_SoftBodySharedSettings_AddDihedralBendConstraint(JPH_SoftBodySharedSettings* settings, uint32_t v0, uint32_t v1, uint32_t v2, uint32_t v3, float compliance, float initialAngle);
+JPH_CAPI void JPH_SoftBodySharedSettings_AddVolumeConstraint(JPH_SoftBodySharedSettings* settings, uint32_t v0, uint32_t v1, uint32_t v2, uint32_t v3, float sixRestVolume, float compliance);
+JPH_CAPI void JPH_SoftBodySharedSettings_AddLRAConstraint(JPH_SoftBodySharedSettings* settings, uint32_t kinematicVertex, uint32_t dynamicVertex, float maxDistance);
+
+/* Post-population helpers. Each derives the geometric scalars (rest length, dihedral
+ * angle, tetra volume, LRA distance) from the current vertex positions. */
+JPH_CAPI void JPH_SoftBodySharedSettings_CalculateEdgeLengths(JPH_SoftBodySharedSettings* settings);
+JPH_CAPI void JPH_SoftBodySharedSettings_CalculateBendConstraintConstants(JPH_SoftBodySharedSettings* settings);
+JPH_CAPI void JPH_SoftBodySharedSettings_CalculateVolumeConstraintVolumes(JPH_SoftBodySharedSettings* settings);
+JPH_CAPI void JPH_SoftBodySharedSettings_CalculateLRALengths(JPH_SoftBodySharedSettings* settings, float maxDistanceMultiplier);
+
+/* Reorders constraints into parallel-executable groups. Call once after all vertices /
+ * constraints have been added and the geometric scalars filled in. */
+JPH_CAPI void JPH_SoftBodySharedSettings_Optimize(JPH_SoftBodySharedSettings* settings);
+
+/* Bend-constraint flavour for JPH_SoftBodySharedSettings_CreateConstraints. */
+typedef enum JPH_SoftBodyBendType {
+    JPH_SoftBodyBendType_None = 0,      /* no bend constraints */
+    JPH_SoftBodyBendType_Distance = 1,  /* extra distance edge across the shared-edge opposites */
+    JPH_SoftBodyBendType_Dihedral = 2,  /* angular dihedral bend constraint */
+} JPH_SoftBodyBendType;
+
+/* Per-vertex authoring attributes consumed by CreateConstraints. Mirrors
+ * JPH::SoftBodySharedSettings::VertexAttributes. Compliance values are XPBD-style
+ * (1/stiffness); 0 = perfectly stiff, FLT_MAX = disabled. */
+typedef struct JPH_SoftBodyVertexAttributes {
+    float compliance;          /* regular edges */
+    float shearCompliance;     /* shear edges (the OTHER quad diagonal) */
+    float bendCompliance;      /* bend constraint compliance (FLT_MAX = no bend) */
+    int   lraType;             /* 0=None, 1=Euclidean, 2=Geodesic */
+    float lraMaxDistanceMultiplier;
+} JPH_SoftBodyVertexAttributes;
+
+/* Auto-generates edge, shear, bend and (optional) LRA constraints from the face list +
+ * per-vertex attributes. Mirrors Jolt's SoftBodyCreator pattern. Must be called after
+ * AddVertex / AddFace and before Optimize. attributesLength can be < vertexCount — the
+ * last entry is reused for any tail vertices. angleToleranceRad gates which face pairs
+ * count as "roughly a quad" for shear-edge emission (Jolt default: 8 degrees). */
+JPH_CAPI void JPH_SoftBodySharedSettings_CreateConstraints(
+    JPH_SoftBodySharedSettings* settings,
+    const JPH_SoftBodyVertexAttributes* attributes,
+    uint32_t attributesLength,
+    JPH_SoftBodyBendType bendType,
+    float angleToleranceRad);
+
+/* JPH_SoftBodyMotionProperties — runtime per-instance state. Live for the body's lifetime. */
+JPH_CAPI JPH_SoftBodyMotionProperties* JPH_MotionProperties_AsSoftBody(JPH_MotionProperties* motion);
+JPH_CAPI JPH_SoftBodyMotionProperties* JPH_Body_GetSoftBodyMotionProperties(JPH_Body* body);
+
+JPH_CAPI uint32_t JPH_SoftBodyMotionProperties_GetVertexCount(const JPH_SoftBodyMotionProperties* motion);
+/* Copies COM-relative vertex positions into outPositions (3 floats per vertex). The caller
+ * sized buffer must hold at least <vertexCount * 3> floats. Vertices beyond
+ * GetVertexCount() are ignored. */
+JPH_CAPI void JPH_SoftBodyMotionProperties_GetVertexPositions(const JPH_SoftBodyMotionProperties* motion, float* outPositions, uint32_t vertexCount);
+/* Sets the per-vertex inverse mass. Use to pin vertices at runtime (invMass = 0). */
+JPH_CAPI void JPH_SoftBodyMotionProperties_SetVertexInvMass(JPH_SoftBodyMotionProperties* motion, uint32_t vertexIndex, float invMass);
+
+JPH_CAPI uint32_t JPH_SoftBodyMotionProperties_GetNumIterations(const JPH_SoftBodyMotionProperties* motion);
+JPH_CAPI void JPH_SoftBodyMotionProperties_SetNumIterations(JPH_SoftBodyMotionProperties* motion, uint32_t numIterations);
+JPH_CAPI float JPH_SoftBodyMotionProperties_GetPressure(const JPH_SoftBodyMotionProperties* motion);
+JPH_CAPI void JPH_SoftBodyMotionProperties_SetPressure(JPH_SoftBodyMotionProperties* motion, float pressure);
+JPH_CAPI void JPH_SoftBodyMotionProperties_SetEnableSkinConstraints(JPH_SoftBodyMotionProperties* motion, bool enable);
+JPH_CAPI void JPH_SoftBodyMotionProperties_SetSkinnedMaxDistanceMultiplier(JPH_SoftBodyMotionProperties* motion, float multiplier);
+
+/* Skin-bind authoring (SoftBodySharedSettings). Each Skinned constraint binds one vertex
+ * to up to 4 joints with weights summing to 1. maxDistance = 0 hard-pins the vertex to its
+ * skinned position; >0 allows drift up to that distance; FLT_MAX disables. */
+JPH_CAPI void JPH_SoftBodySharedSettings_AddSkinnedConstraint(
+    JPH_SoftBodySharedSettings* settings,
+    uint32_t vertex,
+    const uint32_t* invBindIndices,
+    const float* weights,
+    float maxDistance,
+    float backStopDistance,
+    float backStopRadius);
+
+/* Adds an inverse bind matrix for a joint slot. Called once per joint slot before any
+ * SkinnedConstraint references it. */
+JPH_CAPI void JPH_SoftBodySharedSettings_AddInvBindMatrix(
+    JPH_SoftBodySharedSettings* settings,
+    uint32_t jointIndex,
+    const JPH_Mat4* invBind);
+
+/* Pre-computes skinned-constraint normal info. Call once after faces + skin constraints
+ * are populated. */
+JPH_CAPI void JPH_SoftBodySharedSettings_CalculateSkinnedConstraintNormals(JPH_SoftBodySharedSettings* settings);
+
+/* Drives kinematic vertices from joint transforms each step. comTransform = body world COM.
+ * jointTransforms = world-space joint matrices indexed by slot. hardSkinAll forces every
+ * vertex onto its skinned position (use on first frame after teleport). */
+JPH_CAPI void JPH_SoftBodyMotionProperties_SkinVertices(
+    JPH_SoftBodyMotionProperties* motion,
+    JPH_PhysicsSystem* system,
+    const JPH_RMat4* comTransform,
+    const JPH_Mat4* jointTransforms,
+    uint32_t jointCount,
+    bool hardSkinAll);
+
 /* JPH_Constraint */
 JPH_CAPI void JPH_Constraint_Destroy(JPH_Constraint* constraint);
 JPH_CAPI JPH_ConstraintType JPH_Constraint_GetType(const JPH_Constraint* constraint);
@@ -2570,11 +2699,42 @@ typedef struct JPH_DebugRenderer_Procs {
 	void (JPH_API_CALL* DrawText3D)(void* userData, const JPH_RVec3* position, const char* str, JPH_Color color, float height);
 } JPH_DebugRenderer_Procs;
 
+// Built-in body draw filter that does distance culling + user-data bit-mask
+// skip natively (no managed callback per body). Pair with the buffered
+// DebugRenderer for the all-native debug-overlay path.
+JPH_CAPI JPH_BodyDrawFilter* JPH_DistanceBodyDrawFilter_Create(void);
+JPH_CAPI void JPH_DistanceBodyDrawFilter_Destroy(JPH_BodyDrawFilter* filter);
+JPH_CAPI void JPH_DistanceBodyDrawFilter_SetDistanceCull(JPH_BodyDrawFilter* filter, bool enabled, const JPH_RVec3* cameraPos, double maxDistSq);
+JPH_CAPI void JPH_DistanceBodyDrawFilter_SetUserDataSkipMask(JPH_BodyDrawFilter* filter, uint64_t mask);
+
 JPH_CAPI void JPH_DebugRenderer_SetProcs(const JPH_DebugRenderer_Procs* procs);
 JPH_CAPI JPH_DebugRenderer* JPH_DebugRenderer_Create(void* userData);
 JPH_CAPI void JPH_DebugRenderer_Destroy(JPH_DebugRenderer* renderer);
 JPH_CAPI void JPH_DebugRenderer_NextFrame(JPH_DebugRenderer* renderer);
 JPH_CAPI void JPH_DebugRenderer_SetCameraPos(JPH_DebugRenderer* renderer, const JPH_RVec3* position);
+
+// Buffered drain: instead of invoking the s_Procs->DrawLine / DrawTriangle
+// callback per primitive (one P/Invoke per line), DrawBodies / DrawConstraints
+// accumulate primitives into reusable contiguous buffers on the renderer.
+// Managed code drains the whole buffer once per frame via these getters and
+// memcpy's the contents into its own draw list.
+typedef struct JPH_DebugRenderer_LineEntry {
+	JPH_RVec3	from;
+	JPH_RVec3	to;
+	JPH_Color	color;
+	uint32_t	_pad;
+} JPH_DebugRenderer_LineEntry;
+
+typedef struct JPH_DebugRenderer_TriangleEntry {
+	JPH_RVec3	v1;
+	JPH_RVec3	v2;
+	JPH_RVec3	v3;
+	JPH_Color	color;
+	uint32_t	castShadow;
+} JPH_DebugRenderer_TriangleEntry;
+
+JPH_CAPI size_t JPH_DebugRenderer_GetLineBuffer(JPH_DebugRenderer* renderer, const JPH_DebugRenderer_LineEntry** outPtr);
+JPH_CAPI size_t JPH_DebugRenderer_GetTriangleBuffer(JPH_DebugRenderer* renderer, const JPH_DebugRenderer_TriangleEntry** outPtr);
 
 JPH_CAPI void JPH_DebugRenderer_DrawLine(JPH_DebugRenderer* renderer, const JPH_RVec3* from, const JPH_RVec3* to, JPH_Color color);
 JPH_CAPI void JPH_DebugRenderer_DrawWireBox(JPH_DebugRenderer* renderer, const JPH_AABox* box, JPH_Color color);
