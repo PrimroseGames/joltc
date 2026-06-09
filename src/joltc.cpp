@@ -54,6 +54,7 @@ JPH_SUPPRESS_WARNINGS
 #include "Jolt/Physics/SoftBody/SoftBodyCreationSettings.h"
 #include "Jolt/Physics/SoftBody/SoftBodySharedSettings.h"
 #include "Jolt/Physics/SoftBody/SoftBodyMotionProperties.h"
+#include "Jolt/Physics/SoftBody/SoftBodyContactListener.h"
 #include "Jolt/Physics/Collision/RayCast.h"
 #include "Jolt/Physics/Collision/BroadPhase/BroadPhaseQuery.h"
 #include "Jolt/Physics/Collision/NarrowPhaseQuery.h"
@@ -2818,6 +2819,15 @@ void JPH_MeshShapeSettings_Sanitize(JPH_MeshShapeSettings* settings)
 	AsMeshShapeSettings(settings)->Sanitize();
 }
 
+void JPH_MeshShapeSettings_SetMaterials(JPH_MeshShapeSettings* settings, const JPH_PhysicsMaterial** materials, uint32_t materialCount)
+{
+	auto joltSettings = AsMeshShapeSettings(settings);
+	joltSettings->mMaterials.clear();
+	joltSettings->mMaterials.reserve(materialCount);
+	for (uint32_t i = 0; i < materialCount; ++i)
+		joltSettings->mMaterials.push_back(AsPhysicsMaterial(materials[i]));
+}
+
 JPH_MeshShape* JPH_MeshShapeSettings_CreateShape(const JPH_MeshShapeSettings* settings)
 {
 	auto shapeResult = AsMeshShapeSettings(settings)->Create();
@@ -5527,6 +5537,14 @@ void JPH_PhysicsSystem_SetContactListener(JPH_PhysicsSystem* system, JPH_Contact
 	system->physicsSystem->SetContactListener(joltListener);
 }
 
+void JPH_PhysicsSystem_SetSoftBodyContactListener(JPH_PhysicsSystem* system, JPH_SoftBodyContactListener* listener)
+{
+	JPH_ASSERT(system);
+
+	auto joltListener = reinterpret_cast<JPH::SoftBodyContactListener*>(listener);
+	system->physicsSystem->SetSoftBodyContactListener(joltListener);
+}
+
 void JPH_PhysicsSystem_SetBodyActivationListener(JPH_PhysicsSystem* system, JPH_BodyActivationListener* listener)
 {
 	JPH_ASSERT(system);
@@ -7895,6 +7913,43 @@ void JPH_ContactListener_Destroy(JPH_ContactListener* listener)
 	if (listener)
 	{
 		delete reinterpret_cast<ManagedContactListener*>(listener);
+	}
+}
+
+/* One-way soft body contact listener.
+ *
+ * Makes the soft body collide with — and be pushed by — other bodies while
+ * applying no reaction impulse back to them. Done by zeroing the other body's
+ * inverse mass and inverse inertia for every soft-body contact, so the other
+ * body is treated as infinite-mass for the collision response. This is the
+ * standard cloth coupling: the world moves the cloth, the cloth never moves the
+ * world. The callback fires once per overlapping body pair per step (not per
+ * vertex) and only writes the settings struct — it takes no locks. */
+class OneWaySoftBodyContactListener final : public JPH::SoftBodyContactListener
+{
+public:
+	JPH::SoftBodyValidateResult OnSoftBodyContactValidate(const Body& inSoftBody, const Body& inOtherBody, SoftBodyContactSettings& ioSettings) override
+	{
+		JPH_UNUSED(inSoftBody);
+		JPH_UNUSED(inOtherBody);
+
+		ioSettings.mInvMassScale2 = 0.0f;
+		ioSettings.mInvInertiaScale2 = 0.0f;
+		return JPH::SoftBodyValidateResult::AcceptContact;
+	}
+};
+
+JPH_SoftBodyContactListener* JPH_SoftBodyContactListener_CreateOneWay(void)
+{
+	auto listener = new OneWaySoftBodyContactListener();
+	return reinterpret_cast<JPH_SoftBodyContactListener*>(listener);
+}
+
+void JPH_SoftBodyContactListener_Destroy(JPH_SoftBodyContactListener* listener)
+{
+	if (listener)
+	{
+		delete reinterpret_cast<OneWaySoftBodyContactListener*>(listener);
 	}
 }
 

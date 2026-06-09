@@ -137,6 +137,7 @@ typedef struct JPH_Body									JPH_Body;
 
 typedef struct JPH_CollideShapeResult					JPH_CollideShapeResult;
 typedef struct JPH_ContactListener						JPH_ContactListener;
+typedef struct JPH_SoftBodyContactListener				JPH_SoftBodyContactListener;
 typedef struct JPH_ContactManifold						JPH_ContactManifold;
 
 typedef struct JPH_GroupFilter							JPH_GroupFilter;
@@ -1116,6 +1117,7 @@ JPH_CAPI const JPH_NarrowPhaseQuery* JPH_PhysicsSystem_GetNarrowPhaseQuery(const
 JPH_CAPI const JPH_NarrowPhaseQuery* JPH_PhysicsSystem_GetNarrowPhaseQueryNoLock(const JPH_PhysicsSystem* system);
 
 JPH_CAPI void JPH_PhysicsSystem_SetContactListener(JPH_PhysicsSystem* system, JPH_ContactListener* listener);
+JPH_CAPI void JPH_PhysicsSystem_SetSoftBodyContactListener(JPH_PhysicsSystem* system, JPH_SoftBodyContactListener* listener);
 JPH_CAPI void JPH_PhysicsSystem_SetBodyActivationListener(JPH_PhysicsSystem* system, JPH_BodyActivationListener* listener);
 JPH_CAPI void JPH_PhysicsSystem_SetSimShapeFilter(JPH_PhysicsSystem* system, const JPH_SimShapeFilter* filter);
 
@@ -1388,6 +1390,7 @@ JPH_CAPI JPH_Mesh_Shape_BuildQuality JPH_MeshShapeSettings_GetBuildQuality(const
 JPH_CAPI void JPH_MeshShapeSettings_SetBuildQuality(JPH_MeshShapeSettings* settings, JPH_Mesh_Shape_BuildQuality value);
 
 JPH_CAPI void JPH_MeshShapeSettings_Sanitize(JPH_MeshShapeSettings* settings);
+JPH_CAPI void JPH_MeshShapeSettings_SetMaterials(JPH_MeshShapeSettings* settings, const JPH_PhysicsMaterial** materials, uint32_t materialCount);
 JPH_CAPI JPH_MeshShape* JPH_MeshShapeSettings_CreateShape(const JPH_MeshShapeSettings* settings);
 JPH_CAPI uint32_t JPH_MeshShape_GetTriangleUserData(const JPH_MeshShape* shape, JPH_SubShapeID id);
 
@@ -2369,6 +2372,16 @@ typedef struct JPH_ContactListener_Procs {
 JPH_CAPI void JPH_ContactListener_SetProcs(const JPH_ContactListener_Procs* procs);
 JPH_CAPI JPH_ContactListener* JPH_ContactListener_Create(void* userData);
 JPH_CAPI void JPH_ContactListener_Destroy(JPH_ContactListener* listener);
+
+/* Soft body contact listener.
+ *
+ * Creates a built-in listener that makes every soft body one-way: the soft body
+ * is still pushed by the bodies it collides with, but it applies no reaction
+ * impulse back to them (mInvMassScale2 = mInvInertiaScale2 = 0 for every
+ * soft-body contact, i.e. the other body is treated as infinite mass). Install
+ * it on a system with JPH_PhysicsSystem_SetSoftBodyContactListener. */
+JPH_CAPI JPH_SoftBodyContactListener* JPH_SoftBodyContactListener_CreateOneWay(void);
+JPH_CAPI void JPH_SoftBodyContactListener_Destroy(JPH_SoftBodyContactListener* listener);
 
 /* Contact listener extended (BodyID-based, avoids body pointer lookup) */
 typedef struct JPH_ContactListener_ProcsEx {
