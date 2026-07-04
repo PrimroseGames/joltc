@@ -3435,6 +3435,11 @@ void JPH_BodyCreationSettings_SetRotation(JPH_BodyCreationSettings* settings, co
 	AsBodyCreationSettings(settings)->mRotation = ToJolt(value);
 }
 
+void JPH_BodyCreationSettings_SetShape(JPH_BodyCreationSettings* settings, const JPH_Shape* shape)
+{
+	AsBodyCreationSettings(settings)->SetShape(AsShape(shape));
+}
+
 void JPH_BodyCreationSettings_GetLinearVelocity(JPH_BodyCreationSettings* settings, JPH_Vec3* velocity)
 {
 	FromJolt(AsBodyCreationSettings(settings)->mLinearVelocity, velocity);

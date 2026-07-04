@@ -1504,6 +1504,8 @@ JPH_CAPI void JPH_BodyCreationSettings_SetPosition(JPH_BodyCreationSettings* set
 JPH_CAPI void JPH_BodyCreationSettings_GetRotation(JPH_BodyCreationSettings* settings, JPH_Quat* result);
 JPH_CAPI void JPH_BodyCreationSettings_SetRotation(JPH_BodyCreationSettings* settings, const JPH_Quat* value);
 
+JPH_CAPI void JPH_BodyCreationSettings_SetShape(JPH_BodyCreationSettings* settings, const JPH_Shape* shape);
+
 JPH_CAPI void JPH_BodyCreationSettings_GetLinearVelocity(JPH_BodyCreationSettings* settings, JPH_Vec3* velocity);
 JPH_CAPI void JPH_BodyCreationSettings_SetLinearVelocity(JPH_BodyCreationSettings* settings, const JPH_Vec3* velocity);
 
