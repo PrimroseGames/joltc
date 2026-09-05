@@ -1613,16 +1613,18 @@ JPH_CAPI void JPH_SoftBodySharedSettings_Destroy(JPH_SoftBodySharedSettings* set
 
 /* Vertex / face / constraint builders. All indices are into mVertices and must be added
  * in vertex-id order. Edge/Bend/Volume/LRA constraints can leave geometric scalars at 0
- * and call the matching Calculate*() routine after all vertices are populated. */
+ * and call the matching Calculate*() routine after all vertices are populated.
+ * Every constraint builder returns false and adds nothing when an index is out of range
+ * or the topology is degenerate, so all vertices must be added first. */
 JPH_CAPI uint32_t JPH_SoftBodySharedSettings_GetVertexCount(const JPH_SoftBodySharedSettings* settings);
 JPH_CAPI uint32_t JPH_SoftBodySharedSettings_GetEdgeCount(const JPH_SoftBodySharedSettings* settings);
 JPH_CAPI uint32_t JPH_SoftBodySharedSettings_GetFaceCount(const JPH_SoftBodySharedSettings* settings);
 JPH_CAPI void JPH_SoftBodySharedSettings_AddVertex(JPH_SoftBodySharedSettings* settings, const JPH_Vec3* position, float invMass);
-JPH_CAPI void JPH_SoftBodySharedSettings_AddFace(JPH_SoftBodySharedSettings* settings, uint32_t v0, uint32_t v1, uint32_t v2, uint32_t materialIndex);
-JPH_CAPI void JPH_SoftBodySharedSettings_AddEdgeConstraint(JPH_SoftBodySharedSettings* settings, uint32_t v0, uint32_t v1, float restLength, float compliance);
-JPH_CAPI void JPH_SoftBodySharedSettings_AddDihedralBendConstraint(JPH_SoftBodySharedSettings* settings, uint32_t v0, uint32_t v1, uint32_t v2, uint32_t v3, float compliance, float initialAngle);
-JPH_CAPI void JPH_SoftBodySharedSettings_AddVolumeConstraint(JPH_SoftBodySharedSettings* settings, uint32_t v0, uint32_t v1, uint32_t v2, uint32_t v3, float sixRestVolume, float compliance);
-JPH_CAPI void JPH_SoftBodySharedSettings_AddLRAConstraint(JPH_SoftBodySharedSettings* settings, uint32_t kinematicVertex, uint32_t dynamicVertex, float maxDistance);
+JPH_CAPI bool JPH_SoftBodySharedSettings_AddFace(JPH_SoftBodySharedSettings* settings, uint32_t v0, uint32_t v1, uint32_t v2, uint32_t materialIndex);
+JPH_CAPI bool JPH_SoftBodySharedSettings_AddEdgeConstraint(JPH_SoftBodySharedSettings* settings, uint32_t v0, uint32_t v1, float restLength, float compliance);
+JPH_CAPI bool JPH_SoftBodySharedSettings_AddDihedralBendConstraint(JPH_SoftBodySharedSettings* settings, uint32_t v0, uint32_t v1, uint32_t v2, uint32_t v3, float compliance, float initialAngle);
+JPH_CAPI bool JPH_SoftBodySharedSettings_AddVolumeConstraint(JPH_SoftBodySharedSettings* settings, uint32_t v0, uint32_t v1, uint32_t v2, uint32_t v3, float sixRestVolume, float compliance);
+JPH_CAPI bool JPH_SoftBodySharedSettings_AddLRAConstraint(JPH_SoftBodySharedSettings* settings, uint32_t kinematicVertex, uint32_t dynamicVertex, float maxDistance);
 
 /* Post-population helpers. Each derives the geometric scalars (rest length, dihedral
  * angle, tetra volume, LRA distance) from the current vertex positions. */
@@ -1686,8 +1688,10 @@ JPH_CAPI void JPH_SoftBodyMotionProperties_SetSkinnedMaxDistanceMultiplier(JPH_S
 
 /* Skin-bind authoring (SoftBodySharedSettings). Each Skinned constraint binds one vertex
  * to up to 4 joints with weights summing to 1. maxDistance = 0 hard-pins the vertex to its
- * skinned position; >0 allows drift up to that distance; FLT_MAX disables. */
-JPH_CAPI void JPH_SoftBodySharedSettings_AddSkinnedConstraint(
+ * skinned position; >0 allows drift up to that distance; FLT_MAX disables. Unused slots use
+ * invBindIndex 0xFFFFFFFF. Returns false and adds nothing when the vertex is out of range or
+ * a weighted influence names a joint slot with no inverse bind matrix. */
+JPH_CAPI bool JPH_SoftBodySharedSettings_AddSkinnedConstraint(
     JPH_SoftBodySharedSettings* settings,
     uint32_t vertex,
     const uint32_t* invBindIndices,
@@ -1697,8 +1701,8 @@ JPH_CAPI void JPH_SoftBodySharedSettings_AddSkinnedConstraint(
     float backStopRadius);
 
 /* Adds an inverse bind matrix for a joint slot. Called once per joint slot before any
- * SkinnedConstraint references it. */
-JPH_CAPI void JPH_SoftBodySharedSettings_AddInvBindMatrix(
+ * SkinnedConstraint references it. Returns false for a joint index past the 4096 slot cap. */
+JPH_CAPI bool JPH_SoftBodySharedSettings_AddInvBindMatrix(
     JPH_SoftBodySharedSettings* settings,
     uint32_t jointIndex,
     const JPH_Mat4* invBind);
@@ -1709,8 +1713,9 @@ JPH_CAPI void JPH_SoftBodySharedSettings_CalculateSkinnedConstraintNormals(JPH_S
 
 /* Drives kinematic vertices from joint transforms each step. comTransform = body world COM.
  * jointTransforms = world-space joint matrices indexed by slot. hardSkinAll forces every
- * vertex onto its skinned position (use on first frame after teleport). */
-JPH_CAPI void JPH_SoftBodyMotionProperties_SkinVertices(
+ * vertex onto its skinned position (use on first frame after teleport). Returns false and
+ * skins nothing when an inverse bind matrix names a slot past jointCount. */
+JPH_CAPI bool JPH_SoftBodyMotionProperties_SkinVertices(
     JPH_SoftBodyMotionProperties* motion,
     JPH_PhysicsSystem* system,
     const JPH_RMat4* comTransform,

@@ -84,6 +84,7 @@ JPH_SUPPRESS_WARNINGS
 
 #include <iostream>
 #include <cstdarg>
+#include <cmath>
 
 // All Jolt symbols are in the JPH namespace
 using namespace JPH;
@@ -3828,40 +3829,82 @@ void JPH_SoftBodySharedSettings_AddVertex(JPH_SoftBodySharedSettings* settings, 
 	s->mVertices.push_back(v);
 }
 
-void JPH_SoftBodySharedSettings_AddFace(JPH_SoftBodySharedSettings* settings, uint32_t v0, uint32_t v1, uint32_t v2, uint32_t materialIndex)
+/* Jolt guards constraint indices with asserts only, so a release build would read and write
+ * past mVertices in Optimize() and in the solver. Every builder below rejects instead. */
+static bool VerticesInRange(const JPH::SoftBodySharedSettings* s, const uint32_t* v, size_t count)
 {
-	auto s = const_cast<JPH::SoftBodySharedSettings*>(AsSoftBodySharedSettings(settings));
-	s->AddFace(JPH::SoftBodySharedSettings::Face(v0, v1, v2, materialIndex));
+	const size_t numVertices = s->mVertices.size();
+	for (size_t i = 0; i < count; ++i)
+		if (v[i] >= numVertices)
+			return false;
+	return true;
 }
 
-void JPH_SoftBodySharedSettings_AddEdgeConstraint(JPH_SoftBodySharedSettings* settings, uint32_t v0, uint32_t v1, float restLength, float compliance)
+static bool VerticesDistinct(const uint32_t* v, size_t count)
+{
+	for (size_t i = 0; i < count; ++i)
+		for (size_t j = i + 1; j < count; ++j)
+			if (v[i] == v[j])
+				return false;
+	return true;
+}
+
+bool JPH_SoftBodySharedSettings_AddFace(JPH_SoftBodySharedSettings* settings, uint32_t v0, uint32_t v1, uint32_t v2, uint32_t materialIndex)
 {
 	auto s = const_cast<JPH::SoftBodySharedSettings*>(AsSoftBodySharedSettings(settings));
+	const uint32_t v[3] = { v0, v1, v2 };
+	if (!VerticesInRange(s, v, 3) || !VerticesDistinct(v, 3))
+		return false;
+	if (materialIndex >= s->mMaterials.size())
+		return false;
+	s->AddFace(JPH::SoftBodySharedSettings::Face(v0, v1, v2, materialIndex));
+	return true;
+}
+
+bool JPH_SoftBodySharedSettings_AddEdgeConstraint(JPH_SoftBodySharedSettings* settings, uint32_t v0, uint32_t v1, float restLength, float compliance)
+{
+	auto s = const_cast<JPH::SoftBodySharedSettings*>(AsSoftBodySharedSettings(settings));
+	const uint32_t v[2] = { v0, v1 };
+	if (!VerticesInRange(s, v, 2) || !VerticesDistinct(v, 2))
+		return false;
 	JPH::SoftBodySharedSettings::Edge e(v0, v1, compliance);
 	e.mRestLength = restLength;
 	s->mEdgeConstraints.push_back(e);
+	return true;
 }
 
-void JPH_SoftBodySharedSettings_AddDihedralBendConstraint(JPH_SoftBodySharedSettings* settings, uint32_t v0, uint32_t v1, uint32_t v2, uint32_t v3, float compliance, float initialAngle)
+bool JPH_SoftBodySharedSettings_AddDihedralBendConstraint(JPH_SoftBodySharedSettings* settings, uint32_t v0, uint32_t v1, uint32_t v2, uint32_t v3, float compliance, float initialAngle)
 {
 	auto s = const_cast<JPH::SoftBodySharedSettings*>(AsSoftBodySharedSettings(settings));
+	const uint32_t v[4] = { v0, v1, v2, v3 };
+	if (!VerticesInRange(s, v, 4))
+		return false;
 	JPH::SoftBodySharedSettings::DihedralBend b(v0, v1, v2, v3, compliance);
 	b.mInitialAngle = initialAngle;
 	s->mDihedralBendConstraints.push_back(b);
+	return true;
 }
 
-void JPH_SoftBodySharedSettings_AddVolumeConstraint(JPH_SoftBodySharedSettings* settings, uint32_t v0, uint32_t v1, uint32_t v2, uint32_t v3, float sixRestVolume, float compliance)
+bool JPH_SoftBodySharedSettings_AddVolumeConstraint(JPH_SoftBodySharedSettings* settings, uint32_t v0, uint32_t v1, uint32_t v2, uint32_t v3, float sixRestVolume, float compliance)
 {
 	auto s = const_cast<JPH::SoftBodySharedSettings*>(AsSoftBodySharedSettings(settings));
+	const uint32_t v[4] = { v0, v1, v2, v3 };
+	if (!VerticesInRange(s, v, 4) || !VerticesDistinct(v, 4))
+		return false;
 	JPH::SoftBodySharedSettings::Volume vol(v0, v1, v2, v3, compliance);
 	vol.mSixRestVolume = sixRestVolume;
 	s->mVolumeConstraints.push_back(vol);
+	return true;
 }
 
-void JPH_SoftBodySharedSettings_AddLRAConstraint(JPH_SoftBodySharedSettings* settings, uint32_t kinematicVertex, uint32_t dynamicVertex, float maxDistance)
+bool JPH_SoftBodySharedSettings_AddLRAConstraint(JPH_SoftBodySharedSettings* settings, uint32_t kinematicVertex, uint32_t dynamicVertex, float maxDistance)
 {
 	auto s = const_cast<JPH::SoftBodySharedSettings*>(AsSoftBodySharedSettings(settings));
+	const uint32_t v[2] = { kinematicVertex, dynamicVertex };
+	if (!VerticesInRange(s, v, 2) || !VerticesDistinct(v, 2))
+		return false;
 	s->mLRAConstraints.push_back(JPH::SoftBodySharedSettings::LRA(kinematicVertex, dynamicVertex, maxDistance));
+	return true;
 }
 
 void JPH_SoftBodySharedSettings_CalculateEdgeLengths(JPH_SoftBodySharedSettings* settings)
@@ -3986,7 +4029,7 @@ void JPH_SoftBodyMotionProperties_SetSkinnedMaxDistanceMultiplier(JPH_SoftBodyMo
 	const_cast<JPH::SoftBodyMotionProperties*>(AsSoftBodyMotionProperties(motion))->SetSkinnedMaxDistanceMultiplier(multiplier);
 }
 
-void JPH_SoftBodySharedSettings_AddSkinnedConstraint(
+bool JPH_SoftBodySharedSettings_AddSkinnedConstraint(
 	JPH_SoftBodySharedSettings* settings,
 	uint32_t vertex,
 	const uint32_t* invBindIndices,
@@ -3996,6 +4039,10 @@ void JPH_SoftBodySharedSettings_AddSkinnedConstraint(
 	float backStopRadius)
 {
 	auto s = const_cast<JPH::SoftBodySharedSettings*>(AsSoftBodySharedSettings(settings));
+	if (invBindIndices == nullptr || weights == nullptr || vertex >= s->mVertices.size())
+		return false;
+
+	const size_t numInvBind = s->mInvBindMatrices.size();
 	JPH::SoftBodySharedSettings::Skinned sk(vertex, maxDistance, backStopDistance, backStopRadius);
 	for (uint32_t i = 0; i < JPH::SoftBodySharedSettings::Skinned::cMaxSkinWeights; ++i)
 	{
@@ -4003,22 +4050,39 @@ void JPH_SoftBodySharedSettings_AddSkinnedConstraint(
 		// convention (mWeights[i] == 0 means slots i..N are unused).
 		uint32_t invBindIdx = invBindIndices[i];
 		float w = weights[i];
-		if (invBindIdx == 0xFFFFFFFFu)
+		if (invBindIdx == 0xFFFFFFFFu || !std::isfinite(w) || w <= 0.0f)
+		{
+			invBindIdx = 0;
 			w = 0.0f;
-		sk.mWeights[i] = JPH::SoftBodySharedSettings::SkinWeight(invBindIdx == 0xFFFFFFFFu ? 0u : invBindIdx, w);
+		}
+		else if (invBindIdx >= numInvBind)
+		{
+			// A weighted influence naming no inverse bind matrix would index the skin
+			// matrix block out of bounds every step.
+			return false;
+		}
+		sk.mWeights[i] = JPH::SoftBodySharedSettings::SkinWeight(invBindIdx, w);
 	}
 	s->mSkinnedConstraints.push_back(sk);
+	return true;
 }
 
-void JPH_SoftBodySharedSettings_AddInvBindMatrix(
+/* Caps the resize below: the joint index is content-supplied. Mirrors the engine's own
+ * joint slot limit. */
+static constexpr uint32_t kMaxSoftBodyJointSlots = 4096;
+
+bool JPH_SoftBodySharedSettings_AddInvBindMatrix(
 	JPH_SoftBodySharedSettings* settings,
 	uint32_t jointIndex,
 	const JPH_Mat4* invBind)
 {
 	auto s = const_cast<JPH::SoftBodySharedSettings*>(AsSoftBodySharedSettings(settings));
+	if (invBind == nullptr || jointIndex >= kMaxSoftBodyJointSlots)
+		return false;
 	if (s->mInvBindMatrices.size() <= jointIndex)
 		s->mInvBindMatrices.resize(jointIndex + 1);
 	s->mInvBindMatrices[jointIndex] = JPH::SoftBodySharedSettings::InvBind(jointIndex, ToJolt(invBind));
+	return true;
 }
 
 void JPH_SoftBodySharedSettings_CalculateSkinnedConstraintNormals(JPH_SoftBodySharedSettings* settings)
@@ -4026,7 +4090,7 @@ void JPH_SoftBodySharedSettings_CalculateSkinnedConstraintNormals(JPH_SoftBodySh
 	const_cast<JPH::SoftBodySharedSettings*>(AsSoftBodySharedSettings(settings))->CalculateSkinnedConstraintNormals();
 }
 
-void JPH_SoftBodyMotionProperties_SkinVertices(
+bool JPH_SoftBodyMotionProperties_SkinVertices(
 	JPH_SoftBodyMotionProperties* motion,
 	JPH_PhysicsSystem* system,
 	const JPH_RMat4* comTransform,
@@ -4035,6 +4099,19 @@ void JPH_SoftBodyMotionProperties_SkinVertices(
 	bool hardSkinAll)
 {
 	auto m = const_cast<JPH::SoftBodyMotionProperties*>(AsSoftBodyMotionProperties(motion));
+	if (jointTransforms == nullptr)
+		return false;
+
+	// Jolt indexes the joint array by each inverse bind matrix's joint slot with an assert
+	// only, so a settings block naming a slot past the supplied array reads out of bounds
+	// on every step.
+	const JPH::SoftBodySharedSettings* shared = m->GetSettings();
+	if (shared == nullptr)
+		return false;
+	for (const JPH::SoftBodySharedSettings::InvBind& invBind : shared->mInvBindMatrices)
+		if (invBind.mJointIndex >= jointCount)
+			return false;
+
 	// Convert C joint matrices to Jolt's SIMD-aligned Mat44. ToJolt(const JPH_Mat4*) memcpys,
 	// and the array layout in Jolt's API requires SIMD alignment which the C struct doesn't
 	// guarantee — so we copy.
@@ -4043,6 +4120,7 @@ void JPH_SoftBodyMotionProperties_SkinVertices(
 	for (uint32_t i = 0; i < jointCount; ++i)
 		joints[i] = ToJolt(&jointTransforms[i]);
 	m->SkinVertices(ToJolt(comTransform), joints.data(), jointCount, hardSkinAll, *system->tempAllocator);
+	return true;
 }
 
 /* JPH_ConstraintSettings */
