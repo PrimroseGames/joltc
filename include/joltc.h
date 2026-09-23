@@ -700,23 +700,22 @@ typedef float JPH_CollidePointCollectorCallback(void* context, const JPH_Collide
 typedef float JPH_CollideShapeCollectorCallback(void* context, const JPH_CollideShapeResult* result);
 typedef float JPH_CastShapeCollectorCallback(void* context, const JPH_ShapeCastResult* result);
 
-typedef struct JPH_CollisionEstimationResultImpulse {
-	float	contactImpulse;
-	float	frictionImpulse1;
-	float	frictionImpulse2;
-} JPH_CollisionEstimationResultImpulse;
-
 typedef struct JPH_CollisionEstimationResult {
 	JPH_Vec3								linearVelocity1;
 	JPH_Vec3								angularVelocity1;
 	JPH_Vec3								linearVelocity2;
 	JPH_Vec3								angularVelocity2;
 
+	JPH_Vec3								frictionPoint;
 	JPH_Vec3								tangent1;
 	JPH_Vec3								tangent2;
 
-	uint32_t								impulseCount;
-	JPH_CollisionEstimationResultImpulse*	impulses;
+	float									frictionImpulse1;
+	float									frictionImpulse2;
+	float									angularFrictionImpulse;
+
+	uint32_t								contactImpulseCount;
+	float*									contactImpulses;
 } JPH_CollisionEstimationResult;
 
 typedef struct JPH_BodyActivationListener           JPH_BodyActivationListener;
@@ -1087,7 +1086,6 @@ typedef struct JPH_PhysicsSettings {
 	float minVelocityForRestitution;
 	float timeBeforeSleep;
 	float pointVelocitySleepThreshold;
-	bool deterministicSimulation;
 	bool constraintWarmStart;
 	bool useBodyPairContactCache;
 	bool useManifoldReduction;
@@ -2442,12 +2440,10 @@ JPH_CAPI uint32_t JPH_ContactManifold_GetPointCount(const JPH_ContactManifold* m
 JPH_CAPI void JPH_ContactManifold_GetWorldSpaceContactPointOn1(const JPH_ContactManifold* manifold, uint32_t index, JPH_RVec3* result);
 JPH_CAPI void JPH_ContactManifold_GetWorldSpaceContactPointOn2(const JPH_ContactManifold* manifold, uint32_t index, JPH_RVec3* result);
 
-// Estimates the pre-solve collision impulse magnitude along the contact
-// normal for the given body pair + manifold. Safe to call from a
-// ContactListener callback (bodies are locked for read during callbacks).
-// Returns 0 for separating contacts, resolved-body-not-found, or fully-static
-// pairs. See implementation for the formula.
-JPH_CAPI float JPH_PhysicsSystem_EstimateCollisionImpulse(const JPH_PhysicsSystem* system, JPH_BodyID bodyId1, JPH_BodyID bodyId2, const JPH_ContactManifold* manifold);
+// Estimated total normal impulse the solver will apply to this contact, from pre-solve velocities.
+// Pass the combined friction/restitution from the callback's ContactSettings. Safe inside ContactListener callbacks.
+// Returns 0 for separating contacts, unresolvable bodies, or pairs with no dynamic body.
+JPH_CAPI float JPH_PhysicsSystem_EstimateCollisionImpulse(const JPH_PhysicsSystem* system, JPH_BodyID bodyId1, JPH_BodyID bodyId2, const JPH_ContactManifold* manifold, float combinedFriction, float combinedRestitution);
 
 /* CharacterBase */
 JPH_CAPI void JPH_CharacterBase_Destroy(JPH_CharacterBase* character);
