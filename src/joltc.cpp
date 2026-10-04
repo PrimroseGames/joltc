@@ -8050,9 +8050,19 @@ public:
 
 	ValidateResult OnContactValidate(const Body& inBody1, const Body& inBody2, RVec3Arg inBaseOffset, const CollideShapeResult& inCollisionResult) override
 	{
-		JPH_UNUSED(inBaseOffset);
-		JPH_UNUSED(inCollisionResult);
-		return JPH::ValidateResult::AcceptAllContactsForThisBodyPair;
+		if (s_Procs == nullptr || !s_Procs->OnContactValidate)
+			return JPH::ValidateResult::AcceptAllContactsForThisBodyPair;
+
+		JPH_RVec3 baseOffset;
+		FromJolt(inBaseOffset, &baseOffset);
+		JPH_CollideShapeResult collideShapeResult = FromJolt(inCollisionResult);
+		return (JPH::ValidateResult)s_Procs->OnContactValidate(
+			userData,
+			reinterpret_cast<const JPH_Body*>(&inBody1),
+			reinterpret_cast<const JPH_Body*>(&inBody2),
+			&baseOffset,
+			&collideShapeResult
+		);
 	}
 
 	void OnContactAdded(const Body& inBody1, const Body& inBody2, const ContactManifold& inManifold, ContactSettings& ioSettings) override
@@ -8120,6 +8130,11 @@ JPH_ContactListener* JPH_ContactListener_CreateEx(void* userData)
 {
 	auto listener = new ManagedContactListenerEx(userData);
 	return reinterpret_cast<JPH_ContactListener*>(listener);
+}
+
+bool JPH_ContactListener_ExValidates(void)
+{
+	return true;
 }
 
 /* BodyActivationListener */

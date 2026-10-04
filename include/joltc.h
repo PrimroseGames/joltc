@@ -2407,10 +2407,19 @@ typedef struct JPH_ContactListener_ProcsEx {
 		JPH_SubShapeID subShapeId1,
 		JPH_BodyID bodyId2,
 		JPH_SubShapeID subShapeId2);
+
+	/* Last, so a caller built against the three-callback table still lines up. */
+	JPH_ValidateResult(JPH_API_CALL* OnContactValidate)(void* userData,
+		const JPH_Body* body1,
+		const JPH_Body* body2,
+		const JPH_RVec3* baseOffset,
+		const JPH_CollideShapeResult* collisionResult);
 } JPH_ContactListener_ProcsEx;
 
 JPH_CAPI void JPH_ContactListener_SetProcsEx(const JPH_ContactListener_ProcsEx* procs);
 JPH_CAPI JPH_ContactListener* JPH_ContactListener_CreateEx(void* userData);
+/* True when the BodyID-based listener forwards OnContactValidate. */
+JPH_CAPI bool JPH_ContactListener_ExValidates(void);
 
 /* BodyActivationListener */
 typedef struct JPH_BodyActivationListener_Procs {
