@@ -3991,6 +3991,39 @@ void JPH_SoftBodyMotionProperties_GetVertexPositions(const JPH_SoftBodyMotionPro
 	}
 }
 
+void JPH_SoftBodyMotionProperties_GetVertexVelocities(const JPH_SoftBodyMotionProperties* motion, float* outVelocities, uint32_t vertexCount)
+{
+	const auto& verts = AsSoftBodyMotionProperties(motion)->GetVertices();
+	uint32_t n = vertexCount < verts.size() ? vertexCount : static_cast<uint32_t>(verts.size());
+	for (uint32_t i = 0; i < n; ++i)
+	{
+		const JPH::Vec3& v = verts[i].mVelocity;
+		outVelocities[i * 3 + 0] = v.GetX();
+		outVelocities[i * 3 + 1] = v.GetY();
+		outVelocities[i * 3 + 2] = v.GetZ();
+	}
+}
+
+void JPH_SoftBodyMotionProperties_SetVertexVelocities(JPH_SoftBodyMotionProperties* motion, const float* velocities, uint32_t vertexCount)
+{
+	auto& verts = const_cast<JPH::SoftBodyMotionProperties*>(AsSoftBodyMotionProperties(motion))->GetVertices();
+	uint32_t n = vertexCount < verts.size() ? vertexCount : static_cast<uint32_t>(verts.size());
+	for (uint32_t i = 0; i < n; ++i)
+		if (verts[i].mInvMass > 0.0f)
+			verts[i].mVelocity = JPH::Vec3(velocities[i * 3 + 0], velocities[i * 3 + 1], velocities[i * 3 + 2]);
+}
+
+/* Positions are relative to the body's centre of mass. Pinned vertices are left alone; their place is the
+ * skinning's. */
+void JPH_SoftBodyMotionProperties_SetVertexPositions(JPH_SoftBodyMotionProperties* motion, const float* positions, uint32_t vertexCount)
+{
+	auto& verts = const_cast<JPH::SoftBodyMotionProperties*>(AsSoftBodyMotionProperties(motion))->GetVertices();
+	uint32_t n = vertexCount < verts.size() ? vertexCount : static_cast<uint32_t>(verts.size());
+	for (uint32_t i = 0; i < n; ++i)
+		if (verts[i].mInvMass > 0.0f)
+			verts[i].mPosition = JPH::Vec3(positions[i * 3 + 0], positions[i * 3 + 1], positions[i * 3 + 2]);
+}
+
 void JPH_SoftBodyMotionProperties_SetVertexInvMass(JPH_SoftBodyMotionProperties* motion, uint32_t vertexIndex, float invMass)
 {
 	auto m = const_cast<JPH::SoftBodyMotionProperties*>(AsSoftBodyMotionProperties(motion));
@@ -7337,9 +7370,18 @@ bool JPH_NarrowPhaseQuery_CollideShape2(const JPH_NarrowPhaseQuery* query,
 	}
 }
 
+// Null scale is unscaled; a scale the shape cannot take is made valid the way the shape itself does.
+static RShapeCast ToShapeCast(const JPH_Shape* shape, const JPH_Vec3* scale, const JPH_RMat4* centerOfMassTransform,
+	const JPH_Vec3* direction)
+{
+	const Shape* joltShape = AsShape(shape);
+	JPH::Vec3 joltScale = scale ? joltShape->MakeScaleValid(ToJolt(scale)) : JPH::Vec3::sOne();
+	return RShapeCast(joltShape, joltScale, ToJolt(centerOfMassTransform), ToJolt(direction));
+}
+
 bool JPH_NarrowPhaseQuery_CastShape(const JPH_NarrowPhaseQuery* query,
-	const JPH_Shape* shape,
-	const JPH_RMat4* worldTransform, const JPH_Vec3* direction,
+	const JPH_Shape* shape, const JPH_Vec3* scale,
+	const JPH_RMat4* centerOfMassTransform, const JPH_Vec3* direction,
 	const JPH_ShapeCastSettings* settings,
 	JPH_RVec3* baseOffset,
 	JPH_CastShapeCollectorCallback* callback, void* userData,
@@ -7348,13 +7390,9 @@ bool JPH_NarrowPhaseQuery_CastShape(const JPH_NarrowPhaseQuery* query,
 	const JPH_BodyFilter* bodyFilter,
 	const JPH_ShapeFilter* shapeFilter)
 {
-	JPH_ASSERT(query && shape && worldTransform && direction && callback);
+	JPH_ASSERT(query && shape && centerOfMassTransform && direction && callback);
 
-	RShapeCast shapeCast = RShapeCast::sFromWorldTransform(
-		AsShape(shape),
-		JPH::Vec3(1.f, 1.f, 1.f), // scale can be embedded in worldTransform
-		ToJolt(worldTransform),
-		ToJolt(direction));
+	RShapeCast shapeCast = ToShapeCast(shape, scale, centerOfMassTransform, direction);
 
 	ShapeCastSettings joltSettings = ToJolt(settings);
 
@@ -7376,8 +7414,8 @@ bool JPH_NarrowPhaseQuery_CastShape(const JPH_NarrowPhaseQuery* query,
 }
 
 bool JPH_NarrowPhaseQuery_CastShape2(const JPH_NarrowPhaseQuery* query,
-	const JPH_Shape* shape,
-	const JPH_RMat4* worldTransform, const JPH_Vec3* direction,
+	const JPH_Shape* shape, const JPH_Vec3* scale,
+	const JPH_RMat4* centerOfMassTransform, const JPH_Vec3* direction,
 	const JPH_ShapeCastSettings* settings,
 	JPH_RVec3* baseOffset,
 	JPH_CollisionCollectorType collectorType,
@@ -7387,13 +7425,9 @@ bool JPH_NarrowPhaseQuery_CastShape2(const JPH_NarrowPhaseQuery* query,
 	const JPH_BodyFilter* bodyFilter,
 	const JPH_ShapeFilter* shapeFilter)
 {
-	JPH_ASSERT(query && shape && worldTransform && direction && callback);
+	JPH_ASSERT(query && shape && centerOfMassTransform && direction && callback);
 
-	RShapeCast shapeCast = RShapeCast::sFromWorldTransform(
-		AsShape(shape),
-		JPH::Vec3(1.f, 1.f, 1.f), // scale can be embedded in worldTransform
-		ToJolt(worldTransform),
-		ToJolt(direction));
+	RShapeCast shapeCast = ToShapeCast(shape, scale, centerOfMassTransform, direction);
 
 	ShapeCastSettings joltSettings = ToJolt(settings);
 

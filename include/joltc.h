@@ -1675,6 +1675,9 @@ JPH_CAPI uint32_t JPH_SoftBodyMotionProperties_GetVertexCount(const JPH_SoftBody
  * GetVertexCount() are ignored. */
 JPH_CAPI void JPH_SoftBodyMotionProperties_GetVertexPositions(const JPH_SoftBodyMotionProperties* motion, float* outPositions, uint32_t vertexCount);
 /* Sets the per-vertex inverse mass. Use to pin vertices at runtime (invMass = 0). */
+JPH_CAPI void JPH_SoftBodyMotionProperties_GetVertexVelocities(const JPH_SoftBodyMotionProperties* motion, float* outVelocities, uint32_t vertexCount);
+JPH_CAPI void JPH_SoftBodyMotionProperties_SetVertexVelocities(JPH_SoftBodyMotionProperties* motion, const float* velocities, uint32_t vertexCount);
+JPH_CAPI void JPH_SoftBodyMotionProperties_SetVertexPositions(JPH_SoftBodyMotionProperties* motion, const float* positions, uint32_t vertexCount);
 JPH_CAPI void JPH_SoftBodyMotionProperties_SetVertexInvMass(JPH_SoftBodyMotionProperties* motion, uint32_t vertexIndex, float invMass);
 
 JPH_CAPI uint32_t JPH_SoftBodyMotionProperties_GetNumIterations(const JPH_SoftBodyMotionProperties* motion);
@@ -2174,8 +2177,8 @@ JPH_CAPI bool JPH_NarrowPhaseQuery_CollideShape2(const JPH_NarrowPhaseQuery* que
 	const JPH_ShapeFilter* shapeFilter);
 
 JPH_CAPI bool JPH_NarrowPhaseQuery_CastShape(const JPH_NarrowPhaseQuery* query,
-	const JPH_Shape* shape,
-	const JPH_RMat4* worldTransform, const JPH_Vec3* direction,
+	const JPH_Shape* shape, const JPH_Vec3* scale,
+	const JPH_RMat4* centerOfMassTransform, const JPH_Vec3* direction,
 	const JPH_ShapeCastSettings* settings,
 	JPH_RVec3* baseOffset,
 	JPH_CastShapeCollectorCallback* callback, void* userData,
@@ -2185,8 +2188,8 @@ JPH_CAPI bool JPH_NarrowPhaseQuery_CastShape(const JPH_NarrowPhaseQuery* query,
 	const JPH_ShapeFilter* shapeFilter);
 
 JPH_CAPI bool JPH_NarrowPhaseQuery_CastShape2(const JPH_NarrowPhaseQuery* query,
-	const JPH_Shape* shape,
-	const JPH_RMat4* worldTransform, const JPH_Vec3* direction,
+	const JPH_Shape* shape, const JPH_Vec3* scale,
+	const JPH_RMat4* centerOfMassTransform, const JPH_Vec3* direction,
 	const JPH_ShapeCastSettings* settings,
 	JPH_RVec3* baseOffset,
 	JPH_CollisionCollectorType collectorType,
