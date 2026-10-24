@@ -82,6 +82,14 @@ JPH_SUPPRESS_WARNINGS
 #include "Jolt/Physics/Vehicle/VehicleTrack.h"
 #include "Jolt/Core/LinearCurve.h"
 
+// Native contact rewrites that run after the managed forward; absent in joltc's standalone build.
+#if __has_include("PrimroseQuadGroundConstraint.h")
+	#include "PrimroseQuadGroundConstraint.h"
+	#define JOLTC_PRIMROSE_CONTACT_HOOKS(body1, body2, manifold, settings) JPH::Primrose::QuadGroundConstraint::sOnContact(body1, body2, manifold, settings)
+#else
+	#define JOLTC_PRIMROSE_CONTACT_HOOKS(body1, body2, manifold, settings) ((void)0)
+#endif
+
 #include <iostream>
 #include <cstdarg>
 #include <cmath>
@@ -7975,6 +7983,8 @@ public:
 			// Copy back to jolt
 			ToJolt(ioSettings, &settings);
 		}
+
+		JOLTC_PRIMROSE_CONTACT_HOOKS(inBody1, inBody2, inManifold, ioSettings);
 	}
 
 	void OnContactPersisted(const Body& inBody1, const Body& inBody2, const ContactManifold& inManifold, ContactSettings& ioSettings) override
@@ -7996,6 +8006,8 @@ public:
 			// Copy back to jolt
 			ToJolt(ioSettings, &settings);
 		}
+
+		JOLTC_PRIMROSE_CONTACT_HOOKS(inBody1, inBody2, inManifold, ioSettings);
 	}
 
 	void OnContactRemoved(const SubShapeIDPair& inSubShapePair) override
@@ -8117,6 +8129,9 @@ public:
 
 			ToJolt(ioSettings, &settings);
 		}
+
+		// After the forward, so it sees the managed side's sensor and friction decisions.
+		JOLTC_PRIMROSE_CONTACT_HOOKS(inBody1, inBody2, inManifold, ioSettings);
 	}
 
 	void OnContactPersisted(const Body& inBody1, const Body& inBody2, const ContactManifold& inManifold, ContactSettings& ioSettings) override
@@ -8136,6 +8151,8 @@ public:
 
 			ToJolt(ioSettings, &settings);
 		}
+
+		JOLTC_PRIMROSE_CONTACT_HOOKS(inBody1, inBody2, inManifold, ioSettings);
 	}
 
 	void OnContactRemoved(const SubShapeIDPair& inSubShapePair) override
