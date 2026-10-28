@@ -2451,6 +2451,8 @@ JPH_CAPI JPH_SubShapeID JPH_ContactManifold_GetSubShapeID2(const JPH_ContactMani
 JPH_CAPI uint32_t JPH_ContactManifold_GetPointCount(const JPH_ContactManifold* manifold);
 JPH_CAPI void JPH_ContactManifold_GetWorldSpaceContactPointOn1(const JPH_ContactManifold* manifold, uint32_t index, JPH_RVec3* result);
 JPH_CAPI void JPH_ContactManifold_GetWorldSpaceContactPointOn2(const JPH_ContactManifold* manifold, uint32_t index, JPH_RVec3* result);
+/* Only from a contact added or persisted callback, before its constraint is built from the manifold. */
+JPH_CAPI void JPH_ContactManifold_SetWorldSpaceNormalAndDepth(const JPH_ContactManifold* manifold, const JPH_Vec3* normal, float depth);
 
 // Estimated total normal impulse the solver will apply to this contact, from pre-solve velocities.
 // Pass the combined friction/restitution from the callback's ContactSettings. Safe inside ContactListener callbacks.

@@ -8283,6 +8283,18 @@ void JPH_ContactManifold_GetWorldSpaceContactPointOn2(const JPH_ContactManifold*
 	FromJolt(AsContactManifold(manifold)->GetWorldSpaceContactPointOn2(index), result);
 }
 
+// The listener's manifold is the one the constraint is built from once the callback returns. Every point on
+// shape 2 moves to the given depth along the new normal from its point on shape 1.
+void JPH_ContactManifold_SetWorldSpaceNormalAndDepth(const JPH_ContactManifold* manifold, const JPH_Vec3* normal, float depth)
+{
+	JPH::ContactManifold* joltManifold = const_cast<JPH::ContactManifold*>(AsContactManifold(manifold));
+	const JPH::Vec3 n = ToJolt(normal).NormalizedOr(joltManifold->mWorldSpaceNormal);
+	joltManifold->mWorldSpaceNormal = n;
+	joltManifold->mPenetrationDepth = depth;
+	for (JPH::uint i = 0; i < joltManifold->mRelativeContactPointsOn1.size(); ++i)
+		joltManifold->mRelativeContactPointsOn2[i] = joltManifold->mRelativeContactPointsOn1[i] - n * depth;
+}
+
 // Total normal impulse the solver is estimated to apply over all manifold points, from pre-solve velocities.
 // Bodies are read-locked during ContactListener callbacks, so the NoLock interface is valid there.
 float JPH_PhysicsSystem_EstimateCollisionImpulse(
